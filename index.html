@@ -2,9 +2,10 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#070a0e" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>MANHUNT // PROTOCOL — Live GPS Tactical Chase</title>
 
@@ -52,14 +53,38 @@
       -webkit-tap-highlight-color: transparent;
     }
     body {
-      background-color: #070a0e;
-      color: #f1f5f9;
-      font-family: 'Inter', sans-serif;
-      overflow: hidden;
-      height: 100dvh;
-      width: 100vw;
-      user-select: none;
-    }
+    background-color: #070a0e;
+    color: #f1f5f9;
+    font-family: 'Inter', sans-serif;
+    overflow: hidden !important;
+    height: 100dvh !important;
+    width: 100vw !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    position: fixed !important;
+    inset: 0 !important;
+    user-select: none;
+}
+
+main {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    height: 100% !important;
+    position: relative !important;
+    width: 100% !important;
+}
+
+#mapViewContainer {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+nav, footer {
+    flex-shrink: 0 !important;
+    padding-bottom: env(safe-area-inset-bottom, 8px) !important;
+}
     /* Custom Tactical Scrollbar */
     ::-webkit-scrollbar {
       width: 5px;
