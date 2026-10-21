@@ -1608,9 +1608,11 @@
         });
 
         // Dark-themed CartoDB Dark Matter Tiles with fallback detection
-        const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19
+        const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors & CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20,
+    apiKey: 'eff8363a4b9544bc8073eb43eb9c53ba' // public free tier map key
 }).addTo(map);
 
         tileLayer.on('tileload', () => {
