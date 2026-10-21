@@ -1,0 +1,3516 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#070a0e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>MANHUNT // PROTOCOL — Live GPS Tactical Chase</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Google Fonts: Space Grotesk & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['Space Grotesk', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            tac: {
+              bg: '#070a0e',
+              panel: '#0e141d',
+              border: '#1e293b',
+              runner: '#10b981',
+              chaser: '#f43f5e',
+              amber: '#f59e0b',
+              cyan: '#06b6d4'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      background-color: #070a0e;
+      color: #f1f5f9;
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      height: 100dvh;
+      width: 100vw;
+      user-select: none;
+    }
+    /* Custom Tactical Scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #070a0e;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 9999px;
+    }
+    /* Map Styling */
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #06080b;
+      z-index: 1;
+    }
+    .leaflet-container {
+      background: #06080b !important;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .leaflet-control-attribution {
+      font-size: 9px !important;
+      background: rgba(7, 10, 14, 0.7) !important;
+      color: #64748b !important;
+    }
+    .leaflet-control-attribution a {
+      color: #94a3b8 !important;
+    }
+    /* Tactical Scanline & Animations */
+    @keyframes pulseGlowRunner {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+      50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+    }
+    @keyframes pulseGlowChaser {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.6); }
+      50% { box-shadow: 0 0 0 10px rgba(244, 63, 94, 0); }
+    }
+    @keyframes dangerFlash {
+      0%, 100% { border-color: rgba(244, 63, 94, 0.95); background-color: rgba(244, 63, 94, 0.18); }
+      50% { border-color: rgba(244, 63, 94, 0.25); background-color: rgba(244, 63, 94, 0.04); }
+    }
+    @keyframes cryoPulse {
+      0%, 100% { box-shadow: inset 0 0 35px rgba(6, 182, 212, 0.45); }
+      50% { box-shadow: inset 0 0 70px rgba(6, 182, 212, 0.85); }
+    }
+    .marker-runner {
+      animation: pulseGlowRunner 2s infinite;
+    }
+    .marker-chaser {
+      animation: pulseGlowChaser 2s infinite;
+    }
+    .danger-strobe {
+      animation: dangerFlash 0.85s infinite;
+    }
+    .cryo-screen {
+      animation: cryoPulse 1.5s infinite;
+    }
+    .tac-grid-bg {
+      background-image: radial-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+  </style>
+</head>
+<body class="flex flex-col h-full w-full relative select-none">
+
+  <!-- ========================================================= -->
+  <!-- GLOBAL POPUP BANNERS (ANONYMIZED ALERTS, FREEZE, BOUNTY)  -->
+  <!-- ========================================================= -->
+  <div id="globalAlertContainer" class="fixed top-14 left-1/2 -translate-x-1/2 z-[3000] w-[94%] max-w-md pointer-events-none flex flex-col gap-2"></div>
+
+  <!-- ========================================================= -->
+  <!-- CRYO-FREEZE LOCKDOWN OVERLAY (WHEN ACTIVE PLAYER FROZEN)  -->
+  <!-- ========================================================= -->
+  <div id="freezeOverlay" class="hidden fixed inset-0 z-[2400] pointer-events-none cryo-screen border-4 border-cyan-400/80 flex flex-col justify-between p-4">
+    <div class="bg-slate-950/95 border-2 border-cyan-400 rounded-xl p-3.5 shadow-2xl pointer-events-auto mt-16 mx-auto max-w-sm w-full">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">❄️ CRYO-LOCKDOWN ACTIVE</span>
+        <span id="freezeCountdownText" class="font-mono text-xl font-extrabold text-cyan-300">02:00</span>
+      </div>
+      <p class="text-xs text-slate-200 mt-1.5 leading-relaxed">
+        An opposing operative deployed <strong class="text-cyan-300">Lockdown Freeze</strong> on you! Stay within <strong class="text-amber-300">15m</strong> of your Freeze Anchor or your live GPS pin will flash red to the enemy team for 5 minutes!
+      </p>
+      <div class="mt-2 flex items-center justify-between text-xs font-mono bg-slate-900/90 px-2.5 py-1.5 rounded border border-slate-800">
+        <span>ANCHOR DRIFT: <strong id="freezeDriftMeters" class="text-emerald-400">0.0m / 15m</strong></span>
+        <span id="freezeBreachBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">HOLDING</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- TOP TACTICAL HEADER & TELEMETRY HUD                       -->
+  <!-- ========================================================= -->
+  <header class="bg-tac-panel/95 backdrop-blur-md border-b border-slate-800/90 z-30 shrink-0 px-2.5 py-2">
+    <!-- Top Row: Brand, Room Code, Role Pill, Host/Lobby & Sim Toggle -->
+    <div class="flex items-center justify-between gap-1.5 mb-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <button id="openLobbyBtn" class="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 px-2.5 py-1 rounded-lg transition active:scale-95">
+          <span id="roleIndicatorDot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="font-display font-bold text-xs tracking-wider uppercase truncate" id="activeCallsignHeader">VORTEX</span>
+          <span id="activeTeamBadge" class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">RUNNER</span>
+        </button>
+
+        <button id="copyRoomBtn" class="hidden sm:flex items-center gap-1 bg-slate-900/90 border border-slate-800 px-2 py-1 rounded-lg text-[11px] font-mono text-slate-300 hover:border-slate-700" title="Click to Copy Room Code">
+          <span class="text-slate-500">RM:</span>
+          <span id="headerRoomCode" class="text-amber-400 font-bold">JET-404</span>
+        </button>
+      </div>
+
+      <!-- Mode / Headstart / WakeLock / Dev Controls -->
+      <div class="flex items-center gap-1.5 shrink-0">
+        <div id="headstartHeaderBadge" class="hidden items-center gap-1 bg-amber-500/20 border border-amber-500/50 text-amber-300 px-2 py-0.5 rounded-lg text-[10px] font-mono">
+          <span>HEADSTART:</span>
+          <strong id="headstartTimerHeader">15:00</strong>
+        </div>
+
+        <button id="openDbModalBtn" class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold flex items-center gap-1" title="Real-Time Database & Cloud Sync">
+          <span id="dbStatusDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span class="hidden sm:inline">DB SYNC</span>
+        </button>
+
+        <button id="audioToggleBtn" class="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs font-mono" title="Toggle Tactical Audio">
+          🔊
+        </button>
+
+        <button id="openSettingsBtn" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-slate-200 flex items-center gap-1">
+          <span>⚙️</span><span class="hidden xs:inline">HOST</span>
+        </button>
+
+        <button id="toggleDevDrawerBtn" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 text-[11px] font-mono font-bold flex items-center gap-1 shadow-sm">
+          <span>🛠️</span><span>SIM</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Second Row: Role-Specific Live Telemetry Bar -->
+    <!-- RUNNER TELEMETRY BAR -->
+    <div id="runnerTelemetryBar" class="grid grid-cols-4 gap-1.5 text-center font-mono">
+      <!-- Coins -->
+      <div class="bg-slate-950/90 border border-slate-800/90 rounded-lg px-2 py-1 flex flex-col justify-center">
+        <span class="text-[9px] text-slate-400 uppercase tracking-wider">CREDITS</span>
+        <div class="flex items-center justify-center gap-1">
+          <span class="text-amber-400 text-xs">🪙</span>
+          <span id="runnerCoinsText" class="text-sm font-extrabold text-amber-300">300</span>
+        </div>
+      </div>
+
+      <!-- Stationary Camping Multiplier -->
+      <div class="bg-slate-950/90 border border-slate-800/90 rounded-lg px-2 py-1 flex flex-col justify-center relative overflow-hidden">
+        <span class="text-[9px] text-slate-400 uppercase tracking-wider">CAMP MULT (25m)</span>
+        <div class="flex items-center justify-center gap-1">
+          <span id="runnerMultiplierText" class="text-sm font-extrabold text-emerald-400">1.0x</span>
+          <span id="runnerStationaryTimeText" class="text-[10px] text-slate-400">(00:00)</span>
+        </div>
+      </div>
+
+      <!-- Next Global Ping Countdown -->
+      <div class="bg-slate-950/90 border border-slate-800/90 rounded-lg px-2 py-1 flex flex-col justify-center">
+        <span class="text-[9px] text-slate-400 uppercase tracking-wider">NEXT PING</span>
+        <div class="flex items-center justify-center gap-1">
+          <span id="runnerNextPingText" class="text-sm font-extrabold text-cyan-300">09:45</span>
+          <span id="runnerGhostBadge" class="hidden text-[9px] px-1 rounded bg-purple-500/30 text-purple-300 border border-purple-400/40">GHOST</span>
+        </div>
+      </div>
+
+      <!-- 4-Digit Catch Code -->
+      <div class="bg-slate-950/90 border border-emerald-900/60 rounded-lg px-2 py-1 flex flex-col justify-center">
+        <span class="text-[9px] text-emerald-400/80 uppercase tracking-wider">CATCH CODE</span>
+        <span id="runnerCatchCodeText" class="text-sm font-extrabold tracking-widest text-emerald-300">7392</span>
+      </div>
+    </div>
+
+    <!-- CHASER TELEMETRY BAR -->
+    <div id="chaserTelemetryBar" class="hidden grid-cols-4 gap-1.5 text-center font-mono">
+      <!-- Coins -->
+      <div class="bg-slate-950/90 border border-slate-800/90 rounded-lg px-2 py-1 flex flex-col justify-center">
+        <span class="text-[9px] text-slate-400 uppercase tracking-wider">BOUNTY CREDITS</span>
+        <div class="flex items-center justify-center gap-1">
+          <span class="text-amber-400 text-xs">🪙</span>
+          <span id="chaserCoinsText" class="text-sm font-extrabold text-amber-300">350</span>
+        </div>
+      </div>
+
+      <!-- Next Ping Sweep -->
+      <div class="bg-slate-950/90 border border-slate-800/90 rounded-lg px-2 py-1 flex flex-col justify-center">
+        <span class="text-[9px] text-slate-400 uppercase tracking-wider">NEXT SWEEP</span>
+        <span id="chaserNextPingText" class="text-sm font-extrabold text-rose-400">09:45</span>
+      </div>
+
+      <!-- Scaled Ping Box Error Size -->
+      <div class="bg-slate-950/90 border border-slate-800/90 rounded-lg px-2 py-1 flex flex-col justify-center">
+        <span class="text-[9px] text-slate-400 uppercase tracking-wider">PING BOX SIZE</span>
+        <div class="flex items-center justify-center gap-1">
+          <span id="chaserPingSizeText" class="text-xs font-extrabold text-amber-300">500×500m</span>
+        </div>
+      </div>
+
+      <!-- Remaining Runners -->
+      <div class="bg-slate-950/90 border border-rose-900/60 rounded-lg px-2 py-1 flex flex-col justify-center">
+        <span class="text-[9px] text-rose-400/80 uppercase tracking-wider">TARGETS LEFT</span>
+        <span id="chaserRunnersLeftText" class="text-sm font-extrabold text-rose-300">3 / 3</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================= -->
+  <!-- MAIN VIEWPORT AREA (MAP + TAB PANELS)                     -->
+  <!-- ========================================================= -->
+  <main class="flex-1 relative overflow-hidden w-full" style="min-height: 320px;">
+
+    <!-- ------------------------------------------------------- -->
+    <!-- PERSISTENT LEAFLET + TACTICAL RADAR MAP VIEW            -->
+    <!-- ------------------------------------------------------- -->
+    <div id="mapViewContainer" class="absolute inset-0 w-full h-full">
+      <!-- Leaflet Map Container -->
+      <div id="map" class="w-full h-full absolute inset-0 z-10"></div>
+
+      <!-- Built-in Tactical Vector Radar Canvas (Fallback & Grid Overlay) -->
+      <canvas id="tacticalRadarCanvas" class="w-full h-full absolute inset-0 z-20 pointer-events-none"></canvas>
+
+      <!-- TOP FLOATING HUD BANNERS OVER MAP -->
+      <div class="absolute top-2.5 left-2.5 right-2.5 z-[500] pointer-events-none flex flex-col gap-2 max-w-lg mx-auto">
+
+        <!-- Blindfold Challenge Overlay Notice -->
+        <div id="blindfoldBanner" class="hidden bg-slate-950/95 border-2 border-purple-500 rounded-xl px-3 py-2 text-center shadow-lg">
+          <div class="text-xs font-mono font-bold text-purple-300">🕶️ BLINDFOLD CONTRACT ACTIVE — RADAR & PING TIMER BLACKED OUT</div>
+          <div id="blindfoldTimerText" class="text-[11px] font-mono text-slate-400">Remaining: 14:52</div>
+        </div>
+
+        <!-- RUNNER PROXIMITY RADAR BANNER -->
+        <div id="runnerRadarBanner" class="bg-slate-950/90 backdrop-blur-md border border-emerald-500/50 rounded-xl px-3 py-2 shadow-xl transition-all duration-300 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span id="radarStatusIcon" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <div class="text-left">
+              <div id="radarStatusTitle" class="font-mono text-xs font-extrabold text-emerald-300 tracking-wide">CLEAR — NO CHASERS IN RANGE</div>
+              <div id="radarStatusSub" class="text-[10px] font-mono text-slate-400">250m Caution & 100m Adrenaline Radar Active</div>
+            </div>
+          </div>
+          <div id="radarBonusPill" class="hidden font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">
+            +15c / 10s
+          </div>
+        </div>
+
+        <!-- OUT OF BOUNDS GRACE WARNING BANNER -->
+        <div id="outOfBoundsBanner" class="hidden bg-rose-950/95 border-2 border-rose-500 rounded-xl px-3 py-2 shadow-xl flex items-center justify-between animate-pulse">
+          <div>
+            <div class="text-xs font-mono font-extrabold text-rose-200">⚠️ OUTSIDE SAFE ZONE! RETURN IMMEDIATELY</div>
+            <div class="text-[10px] font-mono text-rose-300">Live GPS Pin exposed to Chasers if timer hits 0s</div>
+          </div>
+          <span id="oobGraceTimerText" class="font-mono text-lg font-extrabold text-white">60s</span>
+        </div>
+
+        <!-- CHASER THERMAL COMPASS & PATROL MILEAGE OVERLAY -->
+        <div id="chaserMapHudBanner" class="hidden flex-col gap-1.5">
+          <!-- Patrol Mileage + Unlimited Transport Bar -->
+          <div class="bg-slate-950/90 backdrop-blur-md border border-rose-500/40 rounded-xl px-3 py-2 shadow-xl flex flex-col gap-1">
+            <div class="flex items-center justify-between text-[11px] font-mono">
+              <span class="text-rose-300 font-bold flex items-center gap-1">🥾 PATROL MILEAGE (+25c / 500m)</span>
+              <span id="chaserPatrolProgressText" class="text-amber-300 font-bold">0m / 500m</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div id="chaserPatrolBar" class="h-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-0.5">
+              <span>🚓 TRANSPORT: <strong class="text-emerald-300">UNLIMITED (CARS/TRANSIT OK)</strong></span>
+              <span id="precisionStatusBadge" class="hidden text-cyan-300 font-bold">🎯 NEXT PING 2X PRECISION</span>
+            </div>
+          </div>
+
+          <!-- Bloodhound Thermal Compass Active Banner -->
+          <div id="bloodhoundBanner" class="hidden bg-slate-950/95 border border-amber-500/70 rounded-xl px-3 py-2 shadow-xl flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-lg" id="bloodhoundEmoji">🔥</span>
+              <div>
+                <div class="text-xs font-mono font-extrabold text-amber-300" id="bloodhoundStatusText">BLOODHOUND COMPASS: CALIBRATING...</div>
+                <div class="text-[10px] font-mono text-slate-400">Move to compare distance to nearest Runner</div>
+              </div>
+            </div>
+            <span id="bloodhoundTimerText" class="font-mono text-xs font-bold text-amber-300">03:00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- BOTTOM FLOATING MAP CONTROLS (RE-CENTER, ZONE INFO, QUICK CLICK-TO-MOVE) -->
+      <div class="absolute bottom-3 left-2.5 right-2.5 z-[500] pointer-events-none flex items-end justify-between gap-2">
+        <!-- Zone Shrink Telemetry Pill -->
+        <div class="pointer-events-auto bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl px-3 py-2 shadow-xl font-mono text-[11px] flex flex-col gap-0.5">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="text-slate-400">ZONE:</span>
+            <strong id="mapZoneRadiusText" class="text-emerald-300">2500m</strong>
+            <span class="text-slate-600">→</span>
+            <span id="mapFinalRadiusText" class="text-slate-300">250m</span>
+          </div>
+          <div class="text-[10px] text-slate-400 flex items-center gap-2">
+            <span>SHRINK: <strong id="mapShrinkRateText" class="text-amber-300">15m/min</strong></span>
+            <span>•</span>
+            <span id="wakeLockBadge" class="text-cyan-400">🔒 WAKE-LOCK READY</span>
+          </div>
+        </div>
+
+        <!-- Map Action Buttons -->
+        <div class="pointer-events-auto flex flex-col gap-1.5 items-end">
+          <button id="toggleClickTeleportBtn" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-200 font-mono text-[11px] font-bold shadow-lg flex items-center gap-1.5 transition active:scale-95">
+            <span>👆</span><span id="clickTeleportLabel">TAP MAP TO MOVE: ON</span>
+          </button>
+          <div class="flex gap-1.5">
+            <button id="centerActivePlayerBtn" class="px-3 py-1.5 rounded-xl bg-slate-900/95 hover:bg-slate-800 border border-slate-700 text-slate-200 font-mono text-xs shadow-lg active:scale-95">
+              🎯 Center Me
+            </button>
+            <button id="fitZoneBtn" class="px-3 py-1.5 rounded-xl bg-slate-900/95 hover:bg-slate-800 border border-slate-700 text-slate-200 font-mono text-xs shadow-lg active:scale-95">
+              🌐 Fit Zone
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------------- -->
+    <!-- NON-MAP SLIDE-OVER TAB VIEWS                            -->
+    <!-- ------------------------------------------------------- -->
+    <div id="tabContentOverlay" class="hidden absolute inset-0 z-[600] bg-tac-bg/98 backdrop-blur-lg overflow-y-auto p-3 sm:p-5 tac-grid-bg">
+      <div class="max-w-xl mx-auto pb-16">
+
+        <!-- ===================================================== -->
+        <!-- RUNNER TAB 2: HOURLY JET LAG CHALLENGES DECK          -->
+        <!-- ===================================================== -->
+        <section id="runnerChallengesPanel" class="hidden space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <span class="text-[10px] font-mono uppercase tracking-widest text-emerald-400">JET LAG PROTOCOL // HIGH-STAKES CONTRACTS</span>
+              <h2 class="font-display text-xl font-bold text-white">Hourly Challenge Deck</h2>
+            </div>
+            <div class="text-right font-mono">
+              <div class="text-[10px] text-slate-400">LOCKOUT RULE</div>
+              <div class="text-xs font-bold text-amber-300" id="challengeCooldownRuleLabel">1 Card / 60m</div>
+            </div>
+          </div>
+
+          <!-- Cooldown Lockout State -->
+          <div id="challengeCooldownBox" class="hidden bg-slate-900/90 border-2 border-amber-500/50 rounded-2xl p-5 text-center space-y-2">
+            <div class="text-3xl">⏳</div>
+            <h3 class="font-display font-bold text-lg text-amber-300">DECK LOCKED — COOLDOWN ACTIVE</h3>
+            <p class="text-xs text-slate-300 max-w-md mx-auto">
+              High-stakes contracts are time-locked after completion or veto. Survive using stationary multipliers and proximity adrenaline until the next draw!
+            </p>
+            <div class="font-mono text-3xl font-extrabold text-white py-2" id="challengeCooldownTimerText">59:42</div>
+            <button onclick="resetChallengeCooldownDev()" class="text-[11px] font-mono text-amber-400 underline hover:text-amber-300">
+              [Dev Sim: Reset 60m Cooldown Now]
+            </button>
+          </div>
+
+          <!-- Draw Card Prompt State -->
+          <div id="challengeDrawBox" class="bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/50 border-2 border-emerald-500/50 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div class="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center mx-auto text-2xl">
+              🃏
+            </div>
+            <div class="space-y-1">
+              <span class="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">READY TO DRAW</span>
+              <h3 class="font-display text-xl font-bold text-white pt-1">Draw a High-Stakes Contract</h3>
+              <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+                Contracts pay between <strong class="text-amber-300">+500 and +850 Coins</strong> and are tracked via live GPS & tactical timers. Drawing locks your deck until you complete or veto the card.
+              </p>
+            </div>
+            <button id="drawChallengeCardBtn" class="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-sm tracking-wide shadow-lg shadow-emerald-500/20 transition active:scale-98">
+              ⚡ DRAW HIGH-STAKES CONTRACT CARD
+            </button>
+          </div>
+
+          <!-- Active Challenge Card View -->
+          <div id="activeChallengeCardBox" class="hidden bg-slate-900 border-2 border-emerald-400 rounded-2xl p-5 space-y-4 shadow-2xl relative overflow-hidden">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <span id="activeCardTag" class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">GPS + TIMER CONTRACT</span>
+                <h3 id="activeCardTitle" class="font-display text-xl font-bold text-white mt-1.5">Flare Gun</h3>
+              </div>
+              <div class="bg-amber-500/20 border border-amber-400/50 rounded-xl px-3 py-1.5 text-right font-mono shrink-0">
+                <div class="text-[9px] text-amber-200 uppercase">REWARD</div>
+                <div id="activeCardReward" class="text-base font-extrabold text-amber-300">+800 🪙</div>
+              </div>
+            </div>
+
+            <p id="activeCardDesc" class="text-xs text-slate-200 leading-relaxed bg-slate-950/80 p-3.5 rounded-xl border border-slate-800"></p>
+
+            <!-- Live GPS / Timer Telemetry Progress -->
+            <div class="space-y-1.5 bg-slate-950/90 p-3.5 rounded-xl border border-slate-800 font-mono">
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-slate-400" id="activeCardProgressLabel">CONTRACT PROGRESS:</span>
+                <span class="text-emerald-300 font-bold" id="activeCardProgressValue">0%</span>
+              </div>
+              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="activeCardProgressBar" class="h-full bg-emerald-400 transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <div id="activeCardSubTelemetry" class="text-[11px] text-slate-400 pt-1"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5 pt-1">
+              <button id="completeChallengeBtn" class="py-3 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs shadow-lg transition active:scale-95">
+                ✓ VERIFY & CLAIM REWARD
+              </button>
+              <button id="vetoChallengeBtn" class="py-3 px-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50 text-rose-300 font-mono font-bold text-xs transition active:scale-95">
+                ✕ VETO (60m LOCKOUT)
+              </button>
+            </div>
+          </div>
+
+          <!-- Deck Reference Preview -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-3.5 space-y-2">
+            <div class="text-xs font-mono font-bold text-slate-300 flex items-center justify-between">
+              <span>📋 AVAILABLE CONTRACT POOL (10 CARDS)</span>
+              <span class="text-[10px] text-slate-400">Randomly Weighted</span>
+            </div>
+            <div id="contractPoolPreviewList" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-slate-400"></div>
+          </div>
+        </section>
+
+        <!-- ===================================================== -->
+        <!-- RUNNER TAB 3: TRANSPORT WALLET (NO CARS ALLOWED)      -->
+        <!-- ===================================================== -->
+        <section id="runnerTransportPanel" class="hidden space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <span class="text-[10px] font-mono uppercase tracking-widest text-emerald-400">TRANSIT PROTOCOL // ONE-TIME PASSES</span>
+              <h2 class="font-display text-xl font-bold text-white">Runner Transport Wallet</h2>
+            </div>
+            <span class="text-xs font-mono px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              🚶 WALK/RUN: ∞ FREE
+            </span>
+          </div>
+
+          <!-- Strict No-Cars Warning Banner -->
+          <div class="bg-rose-950/70 border-2 border-rose-500/70 rounded-xl p-3.5 flex items-center gap-3">
+            <span class="text-2xl">🚫</span>
+            <div>
+              <div class="font-mono text-xs font-extrabold text-rose-300 uppercase">STRICT RULE: NO CARS / TAXIS / RIDESHARES FOR RUNNERS</div>
+              <p class="text-[11px] text-rose-200/90 mt-0.5">
+                Runners start with <strong>1 free ticket</strong> per public/micro transit mode. Once activated, that mode is locked until re-purchased in the Runner Shop (250 Coins).
+              </p>
+            </div>
+          </div>
+
+          <!-- Active Boarding Pass Banner -->
+          <div id="activeTransitBanner" class="hidden bg-emerald-950/80 border-2 border-emerald-400 rounded-xl p-3.5 flex items-center justify-between">
+            <div>
+              <div class="text-[10px] font-mono text-emerald-300 uppercase">BOARDING WINDOW ACTIVE</div>
+              <div id="activeTransitTitle" class="font-display text-base font-bold text-white">🚌 Bus Pass Active</div>
+            </div>
+            <div class="text-right font-mono">
+              <div class="text-[10px] text-emerald-300">TIME REMAINING</div>
+              <div id="activeTransitTimer" class="text-xl font-extrabold text-white">19:55</div>
+            </div>
+          </div>
+
+          <!-- Transport Mode Cards -->
+          <div id="transportTicketsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+        </section>
+
+        <!-- ===================================================== -->
+        <!-- RUNNER TAB 4: RUNNER TACTICAL SHOP                    -->
+        <!-- ===================================================== -->
+        <section id="runnerShopPanel" class="hidden space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <span class="text-[10px] font-mono uppercase tracking-widest text-emerald-400">EVASION ARMORY // BLACK MARKET</span>
+              <h2 class="font-display text-xl font-bold text-white">Runner Tactical Shop</h2>
+            </div>
+            <div class="bg-slate-900 border border-amber-500/40 px-3 py-1.5 rounded-xl font-mono text-sm font-bold text-amber-300">
+              🪙 <span id="runnerShopCoins">300</span>
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-400 font-mono">
+            ⚠️ Deploying any power-up triggers an <strong class="text-slate-200">anonymized global alert</strong> on all Chasers' screens without revealing who used it or who was targeted.
+          </p>
+
+          <!-- Runner Shop Items Grid -->
+          <div class="space-y-3">
+            <!-- 1. Re-Up Transport Ticket -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col gap-3">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <h3 class="font-display font-bold text-base text-white">🎫 Re-Up Transport Ticket</h3>
+                  <p class="text-xs text-slate-400 mt-0.5">Restore +1 ticket to any depleted public/micro transport mode.</p>
+                </div>
+                <span class="font-mono text-xs font-extrabold px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">250 🪙</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <select id="reupTransportSelect" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white">
+                  <option value="bus">🚌 Bus Ticket</option>
+                  <option value="tram">🚋 Tram / Trolley Ticket</option>
+                  <option value="train">🚆 Train / Subway Ticket</option>
+                  <option value="bike">🚲 Bike / E-Scooter Ticket</option>
+                  <option value="ferry">⛴️ Ferry / Boat Ticket</option>
+                </select>
+                <button onclick="buyRunnerPowerup('reup_ticket')" class="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs transition active:scale-95">
+                  BUY TICKET
+                </button>
+              </div>
+            </div>
+
+            <!-- 2. Chaser Radar Sweep -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="font-display font-bold text-base text-white">📡 Chaser Counter-Sweep (30s)</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Reveals ALL Chasers' exact live GPS pins on your map for 30 seconds.</p>
+              </div>
+              <button onclick="buyRunnerPowerup('chaser_sweep')" class="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs shrink-0 transition active:scale-95">
+                350 🪙
+              </button>
+            </div>
+
+            <!-- 3. Ghost Jammer -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="font-display font-bold text-base text-white">👻 Ghost Signal Jammer</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Cloaks your coordinates from the next scheduled Chaser Ping sweep.</p>
+              </div>
+              <button onclick="buyRunnerPowerup('ghost_jammer')" class="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs shrink-0 transition active:scale-95">
+                300 🪙
+              </button>
+            </div>
+
+            <!-- 4. Decoy Ping -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="font-display font-bold text-base text-white">🎭 Decoy Transmitter</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Spawns a second identical fake Ping Box 400m away on the next Chaser sweep.</p>
+              </div>
+              <button onclick="buyRunnerPowerup('decoy_ping')" class="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs shrink-0 transition active:scale-95">
+                200 🪙
+              </button>
+            </div>
+
+            <!-- 5. Cryo-Freeze (Ultra Expensive) -->
+            <div class="bg-gradient-to-r from-slate-900 to-cyan-950/60 border-2 border-cyan-500/60 rounded-xl p-4 flex flex-col gap-3">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">ULTRA TACTICAL WEAPON</span>
+                  <h3 class="font-display font-bold text-base text-white mt-1">❄️ Cryo-Freeze Chaser (2 Mins)</h3>
+                  <p class="text-xs text-slate-300 mt-0.5">Locks a selected Chaser inside a 15m GPS anchor for 120s. If they breach >15m, their live red pin flashes for 5 minutes.</p>
+                </div>
+                <span class="font-mono text-xs font-extrabold px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 shrink-0">800 🪙</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <select id="runnerFreezeTargetSelect" class="flex-1 bg-slate-950 border border-cyan-700 rounded-lg px-3 py-2 text-xs font-mono text-white"></select>
+                <button onclick="buyRunnerPowerup('cryo_freeze')" class="px-4 py-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-mono font-bold text-xs transition active:scale-95">
+                  FREEZE TARGET
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================== -->
+        <!-- CHASER TAB 2: CATCH VERIFICATION & BOUNTY INTEL       -->
+        <!-- ===================================================== -->
+        <section id="chaserCatchPanel" class="hidden space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <span class="text-[10px] font-mono uppercase tracking-widest text-rose-400">TAG VERIFICATION // BOUNTY ENGINE</span>
+              <h2 class="font-display text-xl font-bold text-white">Catch & Bounty Intel</h2>
+            </div>
+            <span id="gameModeBadgeCatch" class="text-xs font-mono px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40">
+              MODE: ELIMINATION
+            </span>
+          </div>
+
+          <!-- Payout Math Breakdown Box -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 font-mono text-xs space-y-1.5">
+            <div class="text-amber-300 font-bold">💰 CATCH BOUNTY SPLIT FORMULA (BASE: <span id="formulaBaseBounty">500</span>c)</div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+              <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                <div class="text-slate-400">1. CATCHING CHASER</div>
+                <div class="text-emerald-300 font-bold text-sm" id="formulaCatcherCut">+550 Coins (Base+10%)</div>
+              </div>
+              <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                <div class="text-slate-400">2. OTHER CHASERS</div>
+                <div class="text-amber-300 font-bold text-sm" id="formulaAssistCut">+50 Coins (+10% Assist)</div>
+              </div>
+              <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                <div class="text-slate-400">3. SURVIVING RUNNERS</div>
+                <div class="text-cyan-300 font-bold text-sm" id="formulaSurvivorPool">Split 550 Coins Evenly</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4-Digit Catch Code Entry + Proximity Tag -->
+          <div class="bg-gradient-to-br from-slate-900 to-rose-950/40 border-2 border-rose-500/60 rounded-2xl p-4 space-y-3">
+            <h3 class="font-display font-bold text-base text-white">Verify Physical Tag</h3>
+            <p class="text-xs text-slate-300">Enter the caught Runner's 4-digit Catch Code OR use One-Tap Proximity Tag when within 25m GPS distance.</p>
+
+            <div class="flex gap-2">
+              <input id="catchCodeInput" type="text" maxlength="4" placeholder="ENTER 4-DIGIT CODE (e.g. 7392)" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-base font-bold tracking-widest text-white uppercase focus:outline-none focus:border-rose-400" />
+              <button id="submitCatchCodeBtn" class="px-5 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-mono font-extrabold text-xs transition active:scale-95">
+                CONFIRM TAG
+              </button>
+            </div>
+
+            <!-- Proximity Tag List (<25m) -->
+            <div id="proximityTagContainer" class="pt-1 space-y-1.5"></div>
+          </div>
+
+          <!-- Active Runners Roster & Recon Status -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-2.5">
+            <div class="text-xs font-mono font-bold text-slate-300 uppercase">Target Roster & Ping Recon Status</div>
+            <div id="chaserTargetRosterList" class="space-y-2"></div>
+          </div>
+
+          <!-- Tactical Event Log -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-2">
+            <div class="text-xs font-mono font-bold text-slate-300 uppercase">Live Tactical Feed</div>
+            <div id="tacticalEventLog" class="space-y-1.5 max-h-48 overflow-y-auto font-mono text-[11px] text-slate-300"></div>
+          </div>
+        </section>
+
+        <!-- ===================================================== -->
+        <!-- CHASER TAB 3: CHASER HUNTER SHOP                      -->
+        <!-- ===================================================== -->
+        <section id="chaserShopPanel" class="hidden space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <span class="text-[10px] font-mono uppercase tracking-widest text-rose-400">HUNTER ORDNANCE // SATELLITE UPLINK</span>
+              <h2 class="font-display text-xl font-bold text-white">Chaser Tactical Shop</h2>
+            </div>
+            <div class="bg-slate-900 border border-amber-500/40 px-3 py-1.5 rounded-xl font-mono text-sm font-bold text-amber-300">
+              🪙 <span id="chaserShopCoins">350</span>
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-400 font-mono">
+            ⚠️ Activating any hunter power-up sends an <strong class="text-slate-200">anonymized global alert</strong> to all Runners without revealing which Chaser bought it or who was targeted.
+          </p>
+
+          <div class="space-y-3">
+            <!-- 1. Instant Satellite Sweep -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="font-display font-bold text-base text-white">🛰️ Instant Satellite Sweep</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Immediately triggers a fresh offset Ping Box on all uncaught Runners out-of-cycle (plus new +75c Recon bonuses).</p>
+              </div>
+              <button onclick="buyChaserPowerup('instant_ping')" class="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-mono font-bold text-xs shrink-0 transition active:scale-95">
+                350 🪙
+              </button>
+            </div>
+
+            <!-- 2. Precision Narrowing -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="font-display font-bold text-base text-white">🎯 Precision Calibration (50% Box)</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Halves the error diameter of the next Ping sweep (e.g., from 480m down to 240m).</p>
+              </div>
+              <button onclick="buyChaserPowerup('precision_ping')" class="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-mono font-bold text-xs shrink-0 transition active:scale-95">
+                250 🪙
+              </button>
+            </div>
+
+            <!-- 3. Runner Breadcrumb Trail -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="font-display font-bold text-base text-white">👣 Runner Breadcrumb Trail (120m Cap)</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Draws a directional 3-point vector (capped at 120m length) between a random Runner's last two pings.</p>
+              </div>
+              <button onclick="buyChaserPowerup('breadcrumb_trail')" class="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-mono font-bold text-xs shrink-0 transition active:scale-95">
+                300 🪙
+              </button>
+            </div>
+
+            <!-- 4. Bloodhound Thermal Compass -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="font-display font-bold text-base text-white">🔥 Bloodhound Thermal Compass (3m)</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Displays a live WARMER 🔥 / COLDER ❄️ telemetry indicator relative to the nearest Runner as you move.</p>
+              </div>
+              <button onclick="buyChaserPowerup('bloodhound')" class="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-mono font-bold text-xs shrink-0 transition active:scale-95">
+                200 🪙
+              </button>
+            </div>
+
+            <!-- 5. Lockdown Freeze (Ultra Expensive) -->
+            <div class="bg-gradient-to-r from-slate-900 to-cyan-950/60 border-2 border-cyan-500/60 rounded-xl p-4 flex flex-col gap-3">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">ULTRA TACTICAL WEAPON</span>
+                  <h3 class="font-display font-bold text-base text-white mt-1">❄️ Lockdown Freeze Runner (2 Mins)</h3>
+                  <p class="text-xs text-slate-300 mt-0.5">Freezes a selected Runner for 120s (15m anchor lock). If they move >15m, their exact red GPS pin is revealed for 5 minutes.</p>
+                </div>
+                <span class="font-mono text-xs font-extrabold px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 shrink-0">800 🪙</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <select id="chaserFreezeTargetSelect" class="flex-1 bg-slate-950 border border-cyan-700 rounded-lg px-3 py-2 text-xs font-mono text-white"></select>
+                <button onclick="buyChaserPowerup('lockdown_freeze')" class="px-4 py-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-mono font-bold text-xs transition active:scale-95">
+                  FREEZE RUNNER
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ========================================================= -->
+  <!-- BOTTOM MOBILE TACTICAL NAVIGATION BAR                     -->
+  <!-- ========================================================= -->
+  <nav class="bg-tac-panel/98 border-t border-slate-800 z-30 shrink-0 px-2 py-1.5">
+    <!-- RUNNER 4-TAB NAV -->
+    <div id="runnerBottomNav" class="grid grid-cols-4 gap-1.5 max-w-lg mx-auto">
+      <button onclick="switchTab('map')" id="navBtn_runner_map" class="flex flex-col items-center justify-center py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono text-[11px] font-bold transition">
+        <span class="text-base">🗺️</span>
+        <span>RADAR MAP</span>
+      </button>
+      <button onclick="switchTab('runnerChallenges')" id="navBtn_runner_challenges" class="flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-mono text-[11px] font-bold transition relative">
+        <span class="text-base">🃏</span>
+        <span>CONTRACTS</span>
+        <span id="contractReadyDot" class="w-2 h-2 rounded-full bg-emerald-400 absolute top-1.5 right-5"></span>
+      </button>
+      <button onclick="switchTab('runnerTransport')" id="navBtn_runner_transport" class="flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-mono text-[11px] font-bold transition">
+        <span class="text-base">🎫</span>
+        <span>TRANSIT (<span id="navTicketsLeftCount">5</span>)</span>
+      </button>
+      <button onclick="switchTab('runnerShop')" id="navBtn_runner_shop" class="flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-mono text-[11px] font-bold transition">
+        <span class="text-base">⚡</span>
+        <span>ARMORY</span>
+      </button>
+    </div>
+
+    <!-- CHASER 3-TAB NAV -->
+    <div id="chaserBottomNav" class="hidden grid-cols-3 gap-2 max-w-lg mx-auto">
+      <button onclick="switchTab('map')" id="navBtn_chaser_map" class="flex flex-col items-center justify-center py-1.5 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/40 font-mono text-[11px] font-bold transition">
+        <span class="text-base">🛰️</span>
+        <span>HUNTER MAP</span>
+      </button>
+      <button onclick="switchTab('chaserCatch')" id="navBtn_chaser_catch" class="flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-mono text-[11px] font-bold transition relative">
+        <span class="text-base">🎯</span>
+        <span>CATCH & BOUNTY</span>
+        <span id="proxCatchReadyDot" class="hidden w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping absolute top-1.5 right-6"></span>
+      </button>
+      <button onclick="switchTab('chaserShop')" id="navBtn_chaser_shop" class="flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-mono text-[11px] font-bold transition">
+        <span class="text-base">🔥</span>
+        <span>HUNTER SHOP</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ========================================================= -->
+  <!-- FLOATING DEV & GPS SIMULATOR DRAWER                       -->
+  <!-- ========================================================= -->
+  <aside id="devSimDrawer" class="hidden fixed bottom-16 right-2.5 left-2.5 sm:left-auto sm:w-96 z-[2000] bg-slate-950/98 backdrop-blur-xl border-2 border-amber-500/70 rounded-2xl shadow-2xl p-3.5 font-mono text-xs max-h-[75dvh] overflow-y-auto">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2.5">
+      <div class="flex items-center gap-1.5">
+        <span class="text-base">🛠️</span>
+        <span class="font-bold text-amber-300 uppercase tracking-wider">DEV & MULTI-PLAYER GPS SIMULATOR</span>
+      </div>
+      <button onclick="toggleDevDrawer()" class="text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-900 border border-slate-700">✕</button>
+    </div>
+
+    <div class="space-y-3">
+      <!-- Active Controlled Operative Switcher -->
+      <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+        <div class="text-[10px] text-slate-400 uppercase flex justify-between">
+          <span>CONTROLLED OPERATIVE (PERSPECTIVE)</span>
+          <span class="text-emerald-400">DRAG PINS ON MAP!</span>
+        </div>
+        <select id="simActivePlayerSelect" onchange="switchActiveSimulatedPlayer(this.value)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold"></select>
+        <div class="grid grid-cols-2 gap-1.5 pt-1">
+          <button onclick="quickSwitchTeamRole('RUNNER')" class="py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">
+            🏃 View as Runner
+          </button>
+          <button onclick="quickSwitchTeamRole('CHASER')" class="py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-bold text-[11px]">
+            🚓 View as Chaser
+          </button>
+        </div>
+      </div>
+
+      <!-- Instant Proximity & Mechanic Teleporters -->
+      <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+        <div class="text-[10px] text-slate-400 uppercase">TEST GPS DISTANCES & TRIGGERS</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button onclick="simMoveChaserNearRunner(200)" class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-amber-500/40 text-amber-300 text-[11px]">
+            ⚠️ Chaser @ 200m (Caution)
+          </button>
+          <button onclick="simMoveChaserNearRunner(80)" class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-orange-500/40 text-orange-300 text-[11px]">
+            🚨 Chaser @ 80m (+15c/10s)
+          </button>
+          <button onclick="simMoveChaserNearRunner(35)" class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-rose-500/50 text-rose-300 text-[11px]">
+            🔥 Chaser @ 35m (+40c/10s)
+          </button>
+          <button onclick="simMoveChaserNearRunner(12)" class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-emerald-500/50 text-emerald-300 text-[11px]">
+            🎯 Chaser @ 12m (Tag Range)
+          </button>
+        </div>
+      </div>
+
+      <!-- Economy, Camping & Ping Simulation Buttons -->
+      <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+        <div class="text-[10px] text-slate-400 uppercase">INSTANT ENGINE ACTIONS</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button onclick="simAddCoins(500)" class="p-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
+            🪙 +500 Coins (Active)
+          </button>
+          <button onclick="triggerGlobalPingSweep(true)" class="p-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 font-bold text-[11px]">
+            🛰️ Force Global Ping Now
+          </button>
+          <button onclick="simFastForwardStationary(5)" class="p-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px]">
+            ⛺ +5m Stationary Camp
+          </button>
+          <button onclick="simChaserEnterReconBox()" class="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-[11px]">
+            📦 Enter Ping Box (+75c)
+          </button>
+          <button onclick="simAddChaserPatrol(250)" class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px]">
+            🥾 +250m Chaser Patrol
+          </button>
+          <button onclick="simShrinkZoneStep()" class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px]">
+            ⭕ Shrink Safe Zone (-300m)
+          </button>
+          <button onclick="resetChallengeCooldownDev()" class="p-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 text-[11px]">
+            🃏 Reset 1h Card Lockout
+          </button>
+          <button onclick="simTriggerEnemyPowerupAlert()" class="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-[11px]">
+            ⚠️ Test Enemy Alert
+          </button>
+        </div>
+        <button onclick="simExecuteCatchTest()" class="w-full mt-1 py-2 rounded-lg bg-gradient-to-r from-rose-500 to-amber-500 text-slate-950 font-extrabold text-[11px]">
+          ⚡ SIMULATE CATCH (TEST BOUNTY + 10% + SURVIVOR SPLIT)
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========================================================= -->
+  <!-- LOBBY & OPERATIVE SWITCHER MODAL                          -->
+  <!-- ========================================================= -->
+  <div id="lobbyModal" class="hidden fixed inset-0 z-[2500] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-tac-panel border-2 border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <span class="text-[10px] font-mono uppercase tracking-widest text-emerald-400">OPERATIVE UPLINK // ROOM SYNC</span>
+          <h2 class="font-display text-xl font-bold text-white">Squad Lobby & Role Select</h2>
+        </div>
+        <button onclick="closeLobbyModal()" class="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 font-mono text-xs">✕</button>
+      </div>
+
+      <!-- Room Code & GPS Mode -->
+      <div class="grid grid-cols-2 gap-2.5 font-mono text-xs">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+          <label class="text-[10px] text-slate-400 block">ROOM CODE (6-CHAR)</label>
+          <input id="lobbyRoomCodeInput" type="text" maxlength="7" value="JET-404" class="w-full bg-transparent text-amber-400 font-extrabold text-base focus:outline-none mt-0.5 uppercase" />
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+          <span class="text-[10px] text-slate-400">REAL HARDWARE GPS</span>
+          <button id="enableHardwareGpsBtn" onclick="toggleHardwareGps()" class="mt-1 py-1 px-2 rounded bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-bold text-[11px]">
+            📡 Enable Live GPS
+          </button>
+        </div>
+      </div>
+
+      <!-- Active Player Edit -->
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-3">
+        <div class="text-xs font-mono font-bold text-slate-300">YOUR OPERATIVE PROFILE</div>
+        <div class="flex gap-2">
+          <input id="lobbyCallsignInput" type="text" maxlength="14" value="VORTEX" placeholder="Callsign" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 font-mono text-xs text-white font-bold uppercase" />
+          <button onclick="saveLobbyProfile()" class="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs">
+            SAVE
+          </button>
+        </div>
+      </div>
+
+      <!-- Squad Roster (Click any operative to control/spectate them) -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-slate-400 uppercase">ACTIVE MATCH ROSTER (TAP TO CONTROL)</span>
+          <button onclick="addSimulatedBot()" class="text-emerald-400 hover:underline text-[11px]">+ Add Bot Operative</button>
+        </div>
+        <div id="lobbyRosterList" class="space-y-1.5 max-h-56 overflow-y-auto"></div>
+      </div>
+
+      <button onclick="closeLobbyModal()" class="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-mono font-bold text-xs">
+        RETURN TO TACTICAL HUD
+      </button>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- HOST CONFIGURATION MODAL (PARAMETERS & RULES)             -->
+  <!-- ========================================================= -->
+  <div id="hostSettingsModal" class="hidden fixed inset-0 z-[2500] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-tac-panel border-2 border-slate-700 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl my-auto max-h-[92dvh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <span class="text-[10px] font-mono uppercase tracking-widest text-amber-400">GAME MASTER // MATCH PARAMETERS</span>
+          <h2 class="font-display text-xl font-bold text-white">Host Custom Configuration</h2>
+        </div>
+        <button onclick="closeHostSettingsModal()" class="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 font-mono text-xs">✕</button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
+        <!-- Game Mode -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 sm:col-span-2">
+          <label class="text-[10px] text-slate-400 block mb-1">1. CATCH GAME MODE</label>
+          <select id="cfgGameMode" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold">
+            <option value="ELIMINATION">Elimination (Caught Runners become Spectators)</option>
+            <option value="ZOMBIES">Zombies / Infection (Caught Runners convert to Chasers)</option>
+          </select>
+        </div>
+
+        <!-- Headstart Timer -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">RUNNER HEADSTART (MINS)</label>
+          <div class="flex gap-1.5">
+            <input id="cfgHeadstartMins" type="number" min="0" max="120" value="0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+            <button onclick="skipHeadstartNow()" class="px-2 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] shrink-0">Skip</button>
+          </div>
+        </div>
+
+        <!-- Ping Interval -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">BASE PING INTERVAL (MINS)</label>
+          <input id="cfgPingIntervalMins" type="number" min="1" max="60" value="10" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <!-- Initial Ping Error Size -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">INITIAL PING BOX (METERS)</label>
+          <input id="cfgInitialPingSize" type="number" min="100" max="2000" step="50" value="500" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <!-- Challenge Lockout Cooldown -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">CARD DECK COOLDOWN (MINS)</label>
+          <input id="cfgCardCooldownMins" type="number" min="5" max="180" value="60" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <!-- Safe Zone Starting & Final Radius -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">START ZONE RADIUS (M)</label>
+          <input id="cfgStartZoneRadius" type="number" min="500" max="15000" step="100" value="2500" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">FINAL ZONE RADIUS (M)</label>
+          <input id="cfgFinalZoneRadius" type="number" min="50" max="2000" step="50" value="250" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <!-- Zone Shrink Rate & Base Catch Bounty -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">ZONE SHRINK RATE (M/MIN)</label>
+          <input id="cfgShrinkRate" type="number" min="1" max="200" value="15" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">BASE CATCH BOUNTY (COINS)</label>
+          <input id="cfgBaseBounty" type="number" min="100" max="5000" step="50" value="500" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <!-- Survival Rate & Radar Thresholds -->
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">BASE SURVIVAL (COINS/MIN)</label>
+          <input id="cfgSurvivalRate" type="number" min="1" max="100" value="10" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" />
+        </div>
+
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <label class="text-[10px] text-slate-400 block mb-1">RADAR CAUTION / DANGER (M)</label>
+          <div class="flex gap-1.5">
+            <input id="cfgCautionRadius" type="number" value="250" class="w-1/2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-amber-300 font-bold" />
+            <input id="cfgDangerRadius" type="number" value="100" class="w-1/2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-rose-400 font-bold" />
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-2">
+        <button onclick="applyHostConfiguration()" class="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-sm">
+          ✓ APPLY & SYNC PARAMETERS
+        </button>
+        <button onclick="centerZoneOnActivePlayer()" class="px-3.5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs">
+          📍 Center Zone Here
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- CLOUD DATABASE & MULTIPLAYER SYNC MODAL (SUPABASE READY)  -->
+  <!-- ========================================================= -->
+  <div id="dbConfigModal" class="hidden fixed inset-0 z-[2600] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-tac-panel border-2 border-emerald-500/60 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl my-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <span class="text-[10px] font-mono uppercase tracking-widest text-emerald-400">MULTIPLAYER BACKEND // CLOUD SYNC</span>
+          <h2 class="font-display text-xl font-bold text-white">Real-Time Database & Hosting Setup</h2>
+        </div>
+        <button onclick="closeDbModal()" class="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 font-mono text-xs">✕</button>
+      </div>
+
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-xs space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400">CURRENT SYNC ENGINE:</span>
+          <span id="dbCurrentModeLabel" class="text-emerald-400 font-bold">LOCAL STORAGE + CROSS-TAB BROADCAST</span>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          Right now, all state changes (coins, pings, catches, coordinates) automatically persist to <code class="text-amber-300">localStorage</code> and sync live across browser tabs. To play across separate iOS & Android phones over 4G/5G, paste your free <strong>Supabase Project URL & Anon Key</strong> below.
+        </p>
+      </div>
+
+      <div class="space-y-3 font-mono text-xs">
+        <div>
+          <label class="text-[10px] text-slate-400 block mb-1">SUPABASE PROJECT URL (OPTIONAL FOR CLOUD PLAY)</label>
+          <input id="supabaseUrlInput" type="text" placeholder="https://xyzcompany.supabase.co" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-400" />
+        </div>
+        <div>
+          <label class="text-[10px] text-slate-400 block mb-1">SUPABASE ANON PUBLIC KEY</label>
+          <input id="supabaseKeyInput" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-400" />
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 pt-1 font-mono text-xs">
+        <button onclick="saveSupabaseConfig()" class="py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold">
+          🔌 CONNECT CLOUD DB
+        </button>
+        <button onclick="resetFullGameState()" class="py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-bold">
+          ♻️ HARD RESET MATCH STATE
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- APPLICATION LOGIC & REAL-TIME ENGINE                      -->
+  <!-- ========================================================= -->
+  <script>
+    /*************************************************************
+     * 1. MATHEMATICAL & GEODETIC HELPERS (HAVERSINE & OFFSETS)
+     *************************************************************/
+    const EARTH_RADIUS_M = 6371000;
+
+    function toRad(deg) {
+      return (deg * Math.PI) / 180;
+    }
+    function toDeg(rad) {
+      return (rad * 180) / Math.PI;
+    }
+
+    // Accurate Haversine distance in meters between two GPS coordinates
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return EARTH_RADIUS_M * c;
+    }
+
+    // Offset a coordinate by (northMeters, eastMeters)
+    function offsetLatLng(lat, lng, northMeters, eastMeters) {
+      const dLat = northMeters / EARTH_RADIUS_M;
+      const dLon = eastMeters / (EARTH_RADIUS_M * Math.cos(toRad(lat)));
+      return {
+        lat: lat + toDeg(dLat),
+        lng: lng + toDeg(dLon)
+      };
+    }
+
+    // Format seconds as MM:SS
+    function formatMMSS(totalSeconds) {
+      const s = Math.max(0, Math.floor(totalSeconds));
+      const mins = Math.floor(s / 60);
+      const secs = s % 60;
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    /*************************************************************
+     * 2. SYNTHESIZED WEB AUDIO TACTICAL SOUND ENGINE
+     *************************************************************/
+    let audioEnabled = true;
+    let audioCtx = null;
+
+    function playTacticalSound(type) {
+      if (!audioEnabled) return;
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const now = audioCtx.currentTime;
+
+        if (type === 'ping') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, now);
+          osc.frequency.exponentialRampToValueAtTime(440, now + 0.35);
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.4);
+        } else if (type === 'alert') {
+          // Dramatic double tactical siren
+          [0, 0.22].forEach(offset => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(520, now + offset);
+            osc.frequency.linearRampToValueAtTime(760, now + offset + 0.18);
+            gain.gain.setValueAtTime(0.15, now + offset);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + offset + 0.2);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + offset);
+            osc.stop(now + offset + 0.2);
+          });
+        } else if (type === 'coin') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(987.77, now);
+          osc.frequency.setValueAtTime(1318.51, now + 0.08);
+          gain.gain.setValueAtTime(0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.26);
+        } else if (type === 'freeze') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(1100, now);
+          osc.frequency.exponentialRampToValueAtTime(240, now + 0.6);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.62);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.64);
+        }
+      } catch (e) {
+        // Ignore audio context autoplay restrictions until user interaction
+      }
+    }
+
+    /*************************************************************
+     * 3. HIGH-STAKES "JET LAG" CHALLENGE DECK (10 CONTRACTS)
+     *************************************************************/
+    const CHALLENGE_DECK = [
+      {
+        id: 'flare_gun',
+        title: 'Flare Gun Protocol',
+        reward: 800,
+        tag: 'HIGH RISK // LIVE PIN',
+        desc: 'Broadcast your exact live GPS pin to all Chasers for 10 seconds right now, then survive for 10 minutes without being caught.',
+        type: 'timer',
+        durationSec: 600,
+        onStart: (player) => {
+          player.exposedUntil = Date.now() + 10000;
+          showGlobalBanner('🚨 FLARE GUN FIRED! Runner live pin exposed for 10s!', 'rose');
+        }
+      },
+      {
+        id: 'double_ping_statue',
+        title: 'Double Ping Statue',
+        reward: 650,
+        tag: 'STEALTH // ZERO DRIFT',
+        desc: 'Survive two consecutive scheduled Chaser pings without moving more than 30m from your current anchor coordinate.',
+        type: 'pings',
+        requiredPings: 2,
+        maxDriftMeters: 30
+      },
+      {
+        id: 'lions_den',
+        title: "In The Lion's Den",
+        reward: 750,
+        tag: 'PROXIMITY // ADRENALINE',
+        desc: 'Enter within 100m of any Chaser and remain inside their 250m Caution radar for 3 full minutes (180s) without getting tagged.',
+        type: 'proximity_hold',
+        durationSec: 180
+      },
+      {
+        id: 'dead_drop',
+        title: 'Dead Drop Pilgrimage',
+        reward: 600,
+        tag: 'WAYPOINT // ON FOOT',
+        desc: 'A classified Dead Drop coordinate has been marked ~850m away inside the Safe Zone. Reach within 25m of the Dead Drop pin on foot.',
+        type: 'waypoint',
+        targetRadiusM: 25
+      },
+      {
+        id: 'plain_sight_cafe',
+        title: 'Plain Sight Cafe',
+        reward: 500,
+        tag: 'URBAN CAMOUFLAGE',
+        desc: 'Stop at a real-world cafe, bakery, bench, or plaza and stay within a strict 15m radius for 15 consecutive minutes.',
+        type: 'stationary_strict',
+        durationSec: 900,
+        maxDriftMeters: 15
+      },
+      {
+        id: 'edge_runner',
+        title: 'Perimeter Edge Runner',
+        reward: 550,
+        tag: 'BOUNDARY SKIMMING',
+        desc: 'Cover 800m of distance while staying inside the outer 250m ring of the shrinking Safe Zone without stepping out of bounds.',
+        type: 'distance',
+        requiredMeters: 800
+      },
+      {
+        id: 'blindfold_run',
+        title: 'Radio Silence (Blindfold)',
+        reward: 500,
+        tag: 'HUD BLACKOUT',
+        desc: 'Black out your Proximity Radar banner and Next Ping countdown timer for 15 minutes while surviving.',
+        type: 'blindfold',
+        durationSec: 900
+      },
+      {
+        id: 'overpass_lookout',
+        title: 'Overpass Lookout',
+        reward: 600,
+        tag: 'CHOKEPOINT HOLD',
+        desc: 'Hold position within a 50m radius of a major bridge or crossroads for 10 minutes without activating Ghost Jammer.',
+        type: 'timer',
+        durationSec: 600
+      },
+      {
+        id: 'sprint_vector',
+        title: 'High-Velocity Evasion',
+        reward: 650,
+        tag: 'FOOT MOBILITY',
+        desc: 'Cover 600m of physical ground on foot without using any Transport Wallet ticket.',
+        type: 'distance',
+        requiredMeters: 600
+      },
+      {
+        id: 'decoy_gambit',
+        title: 'Double Decoy Gambit',
+        reward: 700,
+        tag: 'DECEPTION',
+        desc: 'Stay inside your previous Ping Box for 5 minutes after a global sweep while Chasers investigate the sector.',
+        type: 'timer',
+        durationSec: 300
+      }
+    ];
+
+    const TRANSPORT_MODES = [
+      { id: 'bus', name: 'City Bus', icon: '🚌', desc: 'Public bus lines (20m boarding pass)' },
+      { id: 'tram', name: 'Tram / Trolley', icon: '🚋', desc: 'Surface rail & trolleybuses' },
+      { id: 'train', name: 'Train / Subway', icon: '🚆', desc: 'Metro & regional rail networks' },
+      { id: 'bike', name: 'Bike / E-Scooter', icon: '🚲', desc: 'Human or micro-mobility rental' },
+      { id: 'ferry', name: 'Ferry / Boat', icon: '⛴️', desc: 'River & harbor water crossings' }
+    ];
+
+    /*************************************************************
+     * 4. CENTRAL GAME STATE (DEFAULT COORDINATES: 44.8154, 20.4522)
+     *************************************************************/
+    const DEFAULT_CENTER = { lat: 44.8154, lng: 20.4522 };
+
+    const gameState = {
+      roomCode: 'JET-404',
+      gameMode: 'ELIMINATION', // 'ELIMINATION' or 'ZOMBIES'
+      headstartSecondsLeft: 0,
+      pingIntervalSec: 600, // 10 mins
+      nextPingInSec: 585,
+      initialPingSizeM: 500,
+      precisionNextPing: false, // Halves next ping size if Chaser bought Precision Narrowing
+
+      zone: {
+        centerLat: DEFAULT_CENTER.lat,
+        centerLng: DEFAULT_CENTER.lng,
+        initialRadiusM: 2500,
+        currentRadiusM: 2500,
+        finalRadiusM: 250,
+        shrinkRateMPerMin: 15
+      },
+
+      radar: {
+        cautionM: 250,
+        dangerM: 100,
+        extremeM: 50
+      },
+
+      economy: {
+        baseSurvivalPerMin: 10,
+        baseCatchBounty: 500,
+        cardCooldownMins: 60
+      },
+
+      activePlayerId: 'runner-1',
+      clickMapToTeleport: true,
+      hardwareGpsEnabled: false,
+      hardwareWatchId: null,
+
+      // Temporary active global effects
+      chaserRadarSweepUntil: 0, // When Runner buys Chaser Radar Sweep (30s)
+      bloodhoundUntil: 0,      // When Chaser buys Bloodhound Thermal Compass (180s)
+      lastNearestRunnerDist: null,
+
+      // Active Ping Boxes & Breadcrumb Trails visible to Chasers
+      activePingBoxes: [],
+      activeTrails: [],
+
+      // Pre-populated multi-player operatives for instant testing
+      players: [
+        {
+          id: 'runner-1',
+          callsign: 'VORTEX',
+          team: 'RUNNER',
+          status: 'ACTIVE', // 'ACTIVE' or 'CAUGHT'
+          lat: 44.8168,
+          lng: 20.4562,
+          prevPingCoord: { lat: 44.8142, lng: 20.4510 },
+          coins: 350,
+          catchCode: '7392',
+          anchorLat: 44.8168,
+          anchorLng: 20.4562,
+          stationarySeconds: 195, // Starts at 3m15s (1.5x multiplier!)
+          outOfBoundsGraceSec: 60,
+          exposedUntil: 0,
+          ghostNextPing: false,
+          decoyNextPing: false,
+          frozenUntil: 0,
+          freezeAnchorLat: 0,
+          freezeAnchorLng: 0,
+          freezeBreachUntil: 0,
+          tickets: { bus: 1, tram: 1, train: 1, bike: 1, ferry: 1 },
+          activeTransit: null, // { modeId, name, expiresAt }
+          challengeCooldownSec: 0,
+          activeChallenge: null // { card, startedAt, progressM, elapsedSec, startLat, startLng, pingsSurvived, waypoint }
+        },
+        {
+          id: 'runner-2',
+          callsign: 'NYX-02',
+          team: 'RUNNER',
+          status: 'ACTIVE',
+          lat: 44.8210,
+          lng: 20.4465,
+          prevPingCoord: { lat: 44.8190, lng: 20.4430 },
+          coins: 420,
+          catchCode: '4819',
+          anchorLat: 44.8210,
+          anchorLng: 20.4465,
+          stationarySeconds: 640, // 2.5x multiplier
+          outOfBoundsGraceSec: 60,
+          exposedUntil: 0,
+          ghostNextPing: false,
+          decoyNextPing: false,
+          frozenUntil: 0,
+          freezeAnchorLat: 0,
+          freezeAnchorLng: 0,
+          freezeBreachUntil: 0,
+          tickets: { bus: 1, tram: 0, train: 1, bike: 1, ferry: 1 },
+          activeTransit: null,
+          challengeCooldownSec: 0,
+          activeChallenge: null
+        },
+        {
+          id: 'runner-3',
+          callsign: 'ECHO-07',
+          team: 'RUNNER',
+          status: 'ACTIVE',
+          lat: 44.8095,
+          lng: 20.4615,
+          prevPingCoord: { lat: 44.8080, lng: 20.4580 },
+          coins: 290,
+          catchCode: '9104',
+          anchorLat: 44.8095,
+          anchorLng: 20.4615,
+          stationarySeconds: 45,
+          outOfBoundsGraceSec: 60,
+          exposedUntil: 0,
+          ghostNextPing: false,
+          decoyNextPing: false,
+          frozenUntil: 0,
+          freezeAnchorLat: 0,
+          freezeAnchorLng: 0,
+          freezeBreachUntil: 0,
+          tickets: { bus: 1, tram: 1, train: 1, bike: 0, ferry: 1 },
+          activeTransit: null,
+          challengeCooldownSec: 0,
+          activeChallenge: null
+        },
+        {
+          id: 'chaser-1',
+          callsign: 'HUNTER-ALPHA',
+          team: 'CHASER',
+          status: 'ACTIVE',
+          lat: 44.8148,
+          lng: 20.4535,
+          coins: 400,
+          patrolMeters: 320,
+          frozenUntil: 0,
+          freezeAnchorLat: 0,
+          freezeAnchorLng: 0,
+          freezeBreachUntil: 0
+        },
+        {
+          id: 'chaser-2',
+          callsign: 'STALKER-9',
+          team: 'CHASER',
+          status: 'ACTIVE',
+          lat: 44.8192,
+          lng: 20.4508,
+          coins: 350,
+          patrolMeters: 140,
+          frozenUntil: 0,
+          freezeAnchorLat: 0,
+          freezeAnchorLng: 0,
+          freezeBreachUntil: 0
+        }
+      ],
+
+      eventLog: [
+        { time: 'LIVE', text: 'MANHUNT // PROTOCOL initialized. Safe Zone set to 2500m radius.' },
+        { time: 'LIVE', text: 'Initial satellite sweep complete. Offset Ping Boxes rendered for Chasers.' }
+      ]
+    };
+
+    // Load persisted match state from localStorage if available
+    const STORAGE_KEY = 'MANHUNT_PROTOCOL_STATE_V2';
+    function saveStateToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          roomCode: gameState.roomCode,
+          gameMode: gameState.gameMode,
+          headstartSecondsLeft: gameState.headstartSecondsLeft,
+          pingIntervalSec: gameState.pingIntervalSec,
+          nextPingInSec: gameState.nextPingInSec,
+          initialPingSizeM: gameState.initialPingSizeM,
+          precisionNextPing: gameState.precisionNextPing,
+          zone: gameState.zone,
+          radar: gameState.radar,
+          economy: gameState.economy,
+          activePingBoxes: gameState.activePingBoxes,
+          activeTrails: gameState.activeTrails,
+          players: gameState.players,
+          eventLog: gameState.eventLog
+        }));
+      } catch (e) {}
+    }
+
+    function loadStateFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.players) && parsed.players.length > 0) {
+          Object.assign(gameState, parsed);
+        }
+      } catch (e) {}
+    }
+
+    function resetFullGameState() {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (e) {}
+      window.location.reload();
+    }
+
+    // Cross-Tab BroadcastChannel for instant multi-tab sync
+    let syncChannel = null;
+    try {
+      syncChannel = new BroadcastChannel('manhunt_protocol_sync');
+      syncChannel.onmessage = (ev) => {
+        if (!ev.data) return;
+        if (ev.data.type === 'POWERUP_ALERT') {
+          handleIncomingOpposingAlert(ev.data.fromTeam);
+        } else if (ev.data.type === 'STATE_SYNC') {
+          const currentActive = gameState.activePlayerId;
+          loadStateFromStorage();
+          gameState.activePlayerId = currentActive;
+          syncMapLayers();
+          updateAllHUD();
+        }
+      };
+    } catch (e) {}
+
+    function broadcastStateSync() {
+      saveStateToStorage();
+      if (syncChannel) {
+        try {
+          syncChannel.postMessage({ type: 'STATE_SYNC' });
+        } catch (e) {}
+      }
+    }
+
+    function getActivePlayer() {
+      return gameState.players.find(p => p.id === gameState.activePlayerId) || gameState.players[0];
+    }
+
+    function getCampingMultiplier(seconds) {
+      const mins = seconds / 60;
+      if (mins >= 20) return 4.0;
+      if (mins >= 10) return 2.5;
+      if (mins >= 3) return 1.5;
+      return 1.0;
+    }
+
+    function getCurrentScaledPingSize() {
+      const ratio = gameState.zone.currentRadiusM / Math.max(1, gameState.zone.initialRadiusM);
+      let scaled = Math.max(80, Math.round(gameState.initialPingSizeM * ratio));
+      if (gameState.precisionNextPing) {
+        scaled = Math.max(50, Math.round(scaled * 0.5));
+      }
+      return scaled;
+    }
+
+    function addEventLog(text) {
+      const now = new Date();
+      const timeStr = now.toTimeString().slice(0, 8);
+      gameState.eventLog.unshift({ time: timeStr, text });
+      if (gameState.eventLog.length > 40) gameState.eventLog.pop();
+      renderCatchAndIntelTab();
+    }
+
+    /*************************************************************
+     * 5. LEAFLET MAP INITIALIZATION & OVERLAY RENDERING
+     *************************************************************/
+    let map = null;
+    let safeZoneCircle = null;
+    let finalZoneCircle = null;
+    let stationaryAnchorCircle = null;
+    let freezeAnchorCircle = null;
+    let deadDropMarker = null;
+    const playerMarkers = {};
+    const pingBoxLayers = [];
+    const trailLayers = [];
+    let leafletReady = false;
+    let mapTilesLoadedCount = 0;
+
+    function initMap() {
+      try {
+        if (typeof L === 'undefined') {
+          throw new Error('Leaflet CDN unavailable');
+        }
+        map = L.map('map', {
+          center: [gameState.zone.centerLat, gameState.zone.centerLng],
+          zoom: 14,
+          zoomControl: false
+        });
+
+        // Dark-themed CartoDB Dark Matter Tiles with fallback detection
+        const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap &copy; CARTO',
+          subdomains: 'abcd',
+          maxZoom: 20
+        }).addTo(map);
+
+        tileLayer.on('tileload', () => {
+          mapTilesLoadedCount++;
+          drawTacticalRadarCanvas();
+        });
+
+        // Safe Zone Circle (Emerald / Cyan)
+        safeZoneCircle = L.circle([gameState.zone.centerLat, gameState.zone.centerLng], {
+          radius: gameState.zone.currentRadiusM,
+          color: '#10b981',
+          weight: 2.5,
+          fillColor: '#10b981',
+          fillOpacity: 0.06
+        }).addTo(map);
+
+        // Final Target Zone Circle (Dashed White)
+        finalZoneCircle = L.circle([gameState.zone.centerLat, gameState.zone.centerLng], {
+          radius: gameState.zone.finalRadiusM,
+          color: '#f8fafc',
+          weight: 1.5,
+          dashArray: '6, 8',
+          fillColor: '#ffffff',
+          fillOpacity: 0.02
+        }).addTo(map);
+
+        // Click Map to Move / Teleport Active Player
+        map.on('click', (e) => {
+          if (!gameState.clickMapToTeleport) return;
+          const p = getActivePlayer();
+          movePlayerToCoordinates(p, e.latlng.lat, e.latlng.lng);
+        });
+
+        map.on('move zoom resize', () => {
+          drawTacticalRadarCanvas();
+        });
+
+        leafletReady = true;
+        setTimeout(() => {
+          map.invalidateSize();
+          drawTacticalRadarCanvas();
+        }, 150);
+      } catch (err) {
+        leafletReady = false;
+        setupFallbackRadarCanvasClicks();
+      }
+
+      // Generate initial offset ping boxes if none exist
+      if (!gameState.activePingBoxes || gameState.activePingBoxes.length === 0) {
+        triggerGlobalPingSweep(false);
+      }
+      syncMapLayers();
+    }
+
+    // Built-in Tactical Radar Grid Canvas (renders a sleek Belgrade tactical grid if tiles haven't loaded or offline)
+    function drawTacticalRadarCanvas() {
+      const canvas = document.getElementById('tacticalRadarCanvas');
+      if (!canvas) return;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      if (canvas.width !== rect.width || canvas.height !== rect.height) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Subtle tactical crosshair and grid lines so map always looks sharp even if tiles are loading/blocked
+      const showFullFallback = !leafletReady || mapTilesLoadedCount === 0;
+      ctx.strokeStyle = showFullFallback ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.05)';
+      ctx.lineWidth = 1;
+
+      const step = 48;
+      for (let x = 0; x < canvas.width; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // If Leaflet failed completely (offline), render full vector radar of players & zone on canvas
+      if (!leafletReady) {
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const metersPerPx = (gameState.zone.initialRadiusM * 2.4) / Math.min(canvas.width, canvas.height);
+
+        // Draw Safe Zone
+        ctx.beginPath();
+        ctx.arc(cx, cy, gameState.zone.currentRadiusM / metersPerPx, 0, Math.PI * 2);
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Draw Players
+        gameState.players.forEach(p => {
+          const dyM = haversineMeters(gameState.zone.centerLat, gameState.zone.centerLng, p.lat, gameState.zone.centerLng) * (p.lat >= gameState.zone.centerLat ? -1 : 1);
+          const dxM = haversineMeters(gameState.zone.centerLat, gameState.zone.centerLng, gameState.zone.centerLat, p.lng) * (p.lng >= gameState.zone.centerLng ? 1 : -1);
+          const px = cx + dxM / metersPerPx;
+          const py = cy + dyM / metersPerPx;
+
+          ctx.fillStyle = p.team === 'RUNNER' ? '#10b981' : '#f43f5e';
+          ctx.beginPath();
+          ctx.arc(px, py, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 10px JetBrains Mono, monospace';
+          ctx.fillText(p.callsign, px + 10, py + 4);
+        });
+      }
+    }
+
+    function setupFallbackRadarCanvasClicks() {
+      const canvas = document.getElementById('tacticalRadarCanvas');
+      if (!canvas) return;
+      canvas.classList.remove('pointer-events-none');
+      canvas.addEventListener('click', (e) => {
+        if (!gameState.clickMapToTeleport) return;
+        const rect = canvas.getBoundingClientRect();
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+        const metersPerPx = (gameState.zone.initialRadiusM * 2.4) / Math.min(rect.width, rect.height);
+        const dxM = (e.clientX - rect.left - cx) * metersPerPx;
+        const dyM = (cy - (e.clientY - rect.top)) * metersPerPx;
+        const coord = offsetLatLng(gameState.zone.centerLat, gameState.zone.centerLng, dyM, dxM);
+        movePlayerToCoordinates(getActivePlayer(), coord.lat, coord.lng);
+      });
+    }
+
+    // Move a player and process all distance/stationary/patrol/freeze/recon math
+    function movePlayerToCoordinates(player, newLat, newLng) {
+      const stepDist = haversineMeters(player.lat, player.lng, newLat, newLng);
+      player.lat = newLat;
+      player.lng = newLng;
+
+      // 1. Check Freeze Anchor Breach (>15m)
+      if (player.frozenUntil > Date.now()) {
+        const freezeDrift = haversineMeters(player.freezeAnchorLat, player.freezeAnchorLng, player.lat, player.lng);
+        if (freezeDrift > 15 && player.freezeBreachUntil < Date.now()) {
+          player.freezeBreachUntil = Date.now() + 5 * 60 * 1000; // 5 mins penalty
+          playTacticalSound('alert');
+          showGlobalBanner(`🚨 FREEZE BREACH! ${player.callsign} moved ${Math.round(freezeDrift)}m (>15m limit)! Live red pin exposed for 5 mins!`, 'rose');
+          addEventLog(`FREEZE BREACH: ${player.callsign} broke their 15m Cryo-Anchor! Live GPS exposed.`);
+        }
+      }
+
+      // 2. If Runner: Update 25m Stationary Camping Anchor & Challenge Progress
+      if (player.team === 'RUNNER' && player.status === 'ACTIVE') {
+        const anchorDist = haversineMeters(player.anchorLat, player.anchorLng, player.lat, player.lng);
+        if (anchorDist > 25) {
+          // Reset anchor to new position & drop multiplier to 1.0x
+          player.anchorLat = player.lat;
+          player.anchorLng = player.lng;
+          if (player.stationarySeconds >= 180) {
+            showGlobalBanner(`⛺ Moved >25m from Camping Anchor — Multiplier reset to 1.0x`, 'amber');
+          }
+          player.stationarySeconds = 0;
+        }
+
+        // Update active GPS Challenge progress if applicable
+        if (player.activeChallenge) {
+          const ch = player.activeChallenge;
+          if (ch.card.type === 'distance' && stepDist < 1500) {
+            ch.progressM = (ch.progressM || 0) + stepDist;
+          }
+          if (ch.card.type === 'waypoint' && ch.waypoint) {
+            const distToDrop = haversineMeters(player.lat, player.lng, ch.waypoint.lat, ch.waypoint.lng);
+            if (distToDrop <= ch.card.targetRadiusM) {
+              completeActiveChallenge(player);
+            }
+          }
+        }
+      }
+
+      // 3. If Chaser: Update Patrol Mileage (+25 coins per 500m) & Recon Ping Box Sweeps (+75 coins)
+      if (player.team === 'CHASER') {
+        if (stepDist > 0 && stepDist < 2500) {
+          player.patrolMeters = (player.patrolMeters || 0) + stepDist;
+          while (player.patrolMeters >= 500) {
+            player.patrolMeters -= 500;
+            player.coins += 25;
+            playTacticalSound('coin');
+            showGlobalBanner(`🥾 PATROL MILEAGE BONUS: +25 Coins for covering 500m!`, 'emerald');
+            addEventLog(`${player.callsign} earned +25 Patrol Coins (500m covered).`);
+          }
+        }
+
+        // Check if Chaser stepped inside any unclaimed Ping Box
+        gameState.activePingBoxes.forEach(box => {
+          if (!box.reconClaimed && !box.isDecoy) {
+            if (
+              player.lat >= box.bounds[0][0] &&
+              player.lat <= box.bounds[1][0] &&
+              player.lng >= box.bounds[0][1] &&
+              player.lng <= box.bounds[1][1]
+            ) {
+              box.reconClaimed = true;
+              box.claimedBy = player.callsign;
+              player.coins += 75;
+              playTacticalSound('coin');
+              showGlobalBanner(`📦 RECON SWEEP BONUS! ${player.callsign} entered ${box.runnerCallsign}'s Ping Box (+75 Coins)!`, 'amber');
+              addEventLog(`${player.callsign} swept ${box.runnerCallsign}'s Ping Sector (+75 Recon Coins).`);
+            }
+          }
+        });
+
+        // Update Bloodhound Thermal Compass if active
+        if (gameState.bloodhoundUntil > Date.now()) {
+          updateBloodhoundCompass(player);
+        }
+      }
+
+      broadcastStateSync();
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    /*************************************************************
+     * 6. RANDOMIZED OFFSET PINGS (ANTI-CENTER RULE)
+     *************************************************************/
+    function createOffsetPingBounds(lat, lng, boxSizeMeters) {
+      const half = boxSizeMeters / 2;
+      // Crucial Anti-Center Rule: Never center on (0,0).
+      // Pick random offset so the Runner is strictly inside the box, offset from center
+      const signN = Math.random() < 0.5 ? -1 : 1;
+      const signE = Math.random() < 0.5 ? -1 : 1;
+      const shiftNorth = signN * (0.15 + Math.random() * 0.25) * boxSizeMeters;
+      const shiftEast = signE * (0.15 + Math.random() * 0.25) * boxSizeMeters;
+
+      const boxCenter = offsetLatLng(lat, lng, shiftNorth, shiftEast);
+      const sw = offsetLatLng(boxCenter.lat, boxCenter.lng, -half, -half);
+      const ne = offsetLatLng(boxCenter.lat, boxCenter.lng, half, half);
+      return {
+        center: boxCenter,
+        bounds: [
+          [sw.lat, sw.lng],
+          [ne.lat, ne.lng]
+        ]
+      };
+    }
+
+    function triggerGlobalPingSweep(isManualOrPowerup = false) {
+      if (gameState.headstartSecondsLeft > 0 && !isManualOrPowerup) {
+        return;
+      }
+
+      const boxSize = getCurrentScaledPingSize();
+      const newBoxes = [];
+
+      gameState.players.forEach(p => {
+        if (p.team !== 'RUNNER' || p.status !== 'ACTIVE') return;
+
+        // Check Double Ping Statue Challenge
+        if (p.activeChallenge && p.activeChallenge.card.id === 'double_ping_statue') {
+          const drift = haversineMeters(p.activeChallenge.startLat, p.activeChallenge.startLng, p.lat, p.lng);
+          if (drift <= 30) {
+            p.activeChallenge.pingsSurvived = (p.activeChallenge.pingsSurvived || 0) + 1;
+            if (p.activeChallenge.pingsSurvived >= 2) {
+              completeActiveChallenge(p);
+            }
+          }
+        }
+
+        // Check Ghost Jammer
+        if (p.ghostNextPing) {
+          p.ghostNextPing = false;
+          addEventLog(`👻 A Runner's Ghost Jammer cloaked their signal from this sweep!`);
+          return;
+        }
+
+        const offsetBox = createOffsetPingBounds(p.lat, p.lng, boxSize);
+        newBoxes.push({
+          id: `ping-${p.id}-${Date.now()}`,
+          runnerId: p.id,
+          runnerCallsign: p.callsign,
+          sizeM: boxSize,
+          bounds: offsetBox.bounds,
+          center: offsetBox.center,
+          reconClaimed: false,
+          isDecoy: false
+        });
+
+        // If Runner bought Decoy Transmitter, spawn a second fake box 400m away
+        if (p.decoyNextPing) {
+          p.decoyNextPing = false;
+          const angle = Math.random() * Math.PI * 2;
+          const decoyOrigin = offsetLatLng(p.lat, p.lng, Math.cos(angle) * 400, Math.sin(angle) * 400);
+          const decoyBox = createOffsetPingBounds(decoyOrigin.lat, decoyOrigin.lng, boxSize);
+          newBoxes.push({
+            id: `decoy-${p.id}-${Date.now()}`,
+            runnerId: p.id,
+            runnerCallsign: `${p.callsign} [SIGNAL]`,
+            sizeM: boxSize,
+            bounds: decoyBox.bounds,
+            center: decoyBox.center,
+            reconClaimed: false,
+            isDecoy: true
+          });
+        }
+
+        // Save previous coordinate for Breadcrumb Trail power-up
+        p.prevPingCoord = { lat: p.lat, lng: p.lng };
+      });
+
+      gameState.activePingBoxes = newBoxes;
+      gameState.precisionNextPing = false;
+      if (!isManualOrPowerup) {
+        gameState.nextPingInSec = gameState.pingIntervalSec;
+      }
+
+      playTacticalSound('ping');
+      addEventLog(`🛰️ Satellite Ping Sweep executed (${boxSize}×${boxSize}m offset boxes).`);
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    /*************************************************************
+     * 7. MAP MARKERS, CIRCLES & PING BOX LAYER SYNC
+     *************************************************************/
+    function syncMapLayers() {
+      drawTacticalRadarCanvas();
+      if (!map || !leafletReady) return;
+      const activePlayer = getActivePlayer();
+      const isRunnerView = activePlayer.team === 'RUNNER';
+      const now = Date.now();
+
+      // Update Safe Zone & Final Zone Circles
+      safeZoneCircle.setLatLng([gameState.zone.centerLat, gameState.zone.centerLng]);
+      safeZoneCircle.setRadius(gameState.zone.currentRadiusM);
+      finalZoneCircle.setLatLng([gameState.zone.centerLat, gameState.zone.centerLng]);
+      finalZoneCircle.setRadius(gameState.zone.finalRadiusM);
+
+      // Update 25m Stationary Camping Anchor Ring (Visible in Runner View)
+      if (isRunnerView && activePlayer.status === 'ACTIVE') {
+        if (!stationaryAnchorCircle) {
+          stationaryAnchorCircle = L.circle([activePlayer.anchorLat, activePlayer.anchorLng], {
+            radius: 25,
+            color: '#10b981',
+            weight: 1.5,
+            dashArray: '4, 4',
+            fillColor: '#10b981',
+            fillOpacity: 0.14
+          }).addTo(map);
+        } else {
+          stationaryAnchorCircle.setLatLng([activePlayer.anchorLat, activePlayer.anchorLng]);
+        }
+      } else if (stationaryAnchorCircle) {
+        map.removeLayer(stationaryAnchorCircle);
+        stationaryAnchorCircle = null;
+      }
+
+      // Update 15m Freeze Anchor Ring if active player is frozen
+      if (activePlayer.frozenUntil > now) {
+        if (!freezeAnchorCircle) {
+          freezeAnchorCircle = L.circle([activePlayer.freezeAnchorLat, activePlayer.freezeAnchorLng], {
+            radius: 15,
+            color: '#06b6d4',
+            weight: 2.5,
+            fillColor: '#06b6d4',
+            fillOpacity: 0.25
+          }).addTo(map);
+        } else {
+          freezeAnchorCircle.setLatLng([activePlayer.freezeAnchorLat, activePlayer.freezeAnchorLng]);
+        }
+      } else if (freezeAnchorCircle) {
+        map.removeLayer(freezeAnchorCircle);
+        freezeAnchorCircle = null;
+      }
+
+      // Update Dead Drop Challenge Waypoint Marker
+      if (
+        isRunnerView &&
+        activePlayer.activeChallenge &&
+        activePlayer.activeChallenge.waypoint
+      ) {
+        const wp = activePlayer.activeChallenge.waypoint;
+        const distToWp = Math.round(haversineMeters(activePlayer.lat, activePlayer.lng, wp.lat, wp.lng));
+        const wpHtml = `
+          <div class="px-2 py-1 rounded-lg bg-amber-500 text-slate-950 font-mono font-extrabold text-[10px] shadow-lg border-2 border-white whitespace-nowrap">
+            📍 DEAD DROP (${distToWp}m)
+          </div>
+        `;
+        if (!deadDropMarker) {
+          deadDropMarker = L.marker([wp.lat, wp.lng], {
+            icon: L.divIcon({ className: '', html: wpHtml, iconSize: [110, 26], iconAnchor: [55, 13] })
+          }).addTo(map);
+        } else {
+          deadDropMarker.setLatLng([wp.lat, wp.lng]);
+          deadDropMarker.setIcon(L.divIcon({ className: '', html: wpHtml, iconSize: [110, 26], iconAnchor: [55, 13] }));
+        }
+      } else if (deadDropMarker) {
+        map.removeLayer(deadDropMarker);
+        deadDropMarker = null;
+      }
+
+      // Clear and re-render Ping Boxes (Visible in Chaser View, or faint reference in Runner View)
+      pingBoxLayers.forEach(l => map.removeLayer(l));
+      pingBoxLayers.length = 0;
+
+      if (gameState.headstartSecondsLeft <= 0) {
+        gameState.activePingBoxes.forEach(box => {
+          const isClaimed = box.reconClaimed;
+          const boxColor = isClaimed ? '#64748b' : '#f59e0b';
+          const rect = L.rectangle(box.bounds, {
+            color: boxColor,
+            weight: isRunnerView ? 1 : 2,
+            dashArray: isRunnerView ? '4,6' : null,
+            fillColor: boxColor,
+            fillOpacity: isRunnerView ? 0.04 : (isClaimed ? 0.08 : 0.18)
+          }).addTo(map);
+          pingBoxLayers.push(rect);
+
+          if (!isRunnerView) {
+            const badgeHtml = `
+              <div class="px-2 py-0.5 rounded bg-slate-950/90 border ${isClaimed ? 'border-slate-700 text-slate-400' : 'border-amber-400 text-amber-300'} font-mono text-[10px] font-bold whitespace-nowrap shadow">
+                🎯 ${box.runnerCallsign} (${box.sizeM}m) ${isClaimed ? '✓ SWEPT' : '• +75c RECON'}
+              </div>
+            `;
+            const labelMarker = L.marker([box.bounds[1][0], box.center.lng], {
+              icon: L.divIcon({ className: '', html: badgeHtml, iconSize: [160, 22], iconAnchor: [80, 22] }),
+              interactive: false
+            }).addTo(map);
+            pingBoxLayers.push(labelMarker);
+          }
+        });
+      }
+
+      // Render Breadcrumb Trails (Chaser View)
+      trailLayers.forEach(l => map.removeLayer(l));
+      trailLayers.length = 0;
+      if (!isRunnerView) {
+        gameState.activeTrails.forEach(trail => {
+          if (trail.expiresAt > now) {
+            const poly = L.polyline(trail.points, {
+              color: '#06b6d4',
+              weight: 3.5,
+              dashArray: '6, 6'
+            }).addTo(map);
+            trailLayers.push(poly);
+          }
+        });
+      }
+
+      // Render Operatives Markers
+      gameState.players.forEach(p => {
+        if (p.status === 'CAUGHT' && p.team === 'RUNNER') {
+          if (playerMarkers[p.id]) {
+            map.removeLayer(playerMarkers[p.id]);
+            delete playerMarkers[p.id];
+          }
+          return;
+        }
+
+        // Visibility logic:
+        // - In Runner view: see all Runners. Only see Chasers if chaserRadarSweepUntil > now OR Chaser has freezeBreachUntil > now.
+        // - In Chaser view: see all Chasers. Only see a Runner's exact pin if Runner is out-of-bounds (grace==0), exposedUntil > now, or freezeBreachUntil > now.
+        // - Note: If Dev Simulator Drawer is open, show subtle ghost pins for hidden players so the user can drag them around easily!
+        const devOpen = !document.getElementById('devSimDrawer').classList.contains('hidden');
+        let isStrictlyVisible = false;
+
+        if (isRunnerView) {
+          if (p.team === 'RUNNER') isStrictlyVisible = true;
+          if (p.team === 'CHASER' && (gameState.chaserRadarSweepUntil > now || p.freezeBreachUntil > now)) {
+            isStrictlyVisible = true;
+          }
+        } else {
+          if (p.team === 'CHASER') isStrictlyVisible = true;
+          if (
+            p.team === 'RUNNER' &&
+            (p.outOfBoundsGraceSec <= 0 || p.exposedUntil > now || p.freezeBreachUntil > now)
+          ) {
+            isStrictlyVisible = true;
+          }
+        }
+
+        if (!isStrictlyVisible && !devOpen && p.id !== activePlayer.id) {
+          if (playerMarkers[p.id]) {
+            map.removeLayer(playerMarkers[p.id]);
+            delete playerMarkers[p.id];
+          }
+          return;
+        }
+
+        const isMe = p.id === activePlayer.id;
+        const isBreached = p.freezeBreachUntil > now || p.outOfBoundsGraceSec <= 0 || p.exposedUntil > now;
+        const opacityClass = isStrictlyVisible || isMe ? 'opacity-100' : 'opacity-45';
+        const bgClass = p.team === 'RUNNER'
+          ? (isBreached ? 'bg-rose-600 border-white' : 'bg-emerald-500 border-emerald-200 marker-runner')
+          : 'bg-rose-500 border-rose-200 marker-chaser';
+
+        const multBadge = p.team === 'RUNNER' ? `<span class="text-emerald-300">${getCampingMultiplier(p.stationarySeconds).toFixed(1)}x</span>` : '';
+
+        const html = `
+          <div class="flex flex-col items-center ${opacityClass}">
+            <div class="px-1.5 py-0.5 rounded bg-slate-950/95 border ${isMe ? 'border-amber-400 text-amber-300' : 'border-slate-700 text-white'} font-mono text-[10px] font-bold whitespace-nowrap shadow-md mb-0.5">
+              ${isMe ? '★ ' : ''}${p.callsign} ${multBadge} ${!isStrictlyVisible && devOpen ? '[SIM]' : ''}
+            </div>
+            <div class="w-4 h-4 rounded-full border-2 ${bgClass} shadow-lg"></div>
+          </div>
+        `;
+
+        if (!playerMarkers[p.id]) {
+          const marker = L.marker([p.lat, p.lng], {
+            draggable: true,
+            icon: L.divIcon({ className: '', html, iconSize: [110, 42], iconAnchor: [55, 34] })
+          }).addTo(map);
+
+          marker.on('dragend', (ev) => {
+            const pos = ev.target.getLatLng();
+            movePlayerToCoordinates(p, pos.lat, pos.lng);
+          });
+
+          playerMarkers[p.id] = marker;
+        } else {
+          playerMarkers[p.id].setLatLng([p.lat, p.lng]);
+          playerMarkers[p.id].setIcon(L.divIcon({ className: '', html, iconSize: [110, 42], iconAnchor: [55, 34] }));
+        }
+      });
+    }
+
+    /*************************************************************
+     * 8. REAL-TIME 1-SECOND GAME LOOP (ECONOMY, RADAR, ZONE)
+     *************************************************************/
+    let tickCounter = 0;
+
+    function runGameTick() {
+      tickCounter++;
+      const now = Date.now();
+
+      // 1. Headstart Countdown
+      if (gameState.headstartSecondsLeft > 0) {
+        gameState.headstartSecondsLeft--;
+        if (gameState.headstartSecondsLeft === 0) {
+          showGlobalBanner('🚨 HEADSTART ENDED! Chaser Satellite Pings are now LIVE!', 'rose');
+          triggerGlobalPingSweep(false);
+        }
+      } else {
+        // 2. Global Ping Countdown
+        gameState.nextPingInSec--;
+        if (gameState.nextPingInSec <= 0) {
+          triggerGlobalPingSweep(false);
+        }
+      }
+
+      // 3. Continuous Safe Zone Shrinking
+      if (gameState.zone.currentRadiusM > gameState.zone.finalRadiusM) {
+        const shrinkPerSec = gameState.zone.shrinkRateMPerMin / 60;
+        gameState.zone.currentRadiusM = Math.max(
+          gameState.zone.finalRadiusM,
+          gameState.zone.currentRadiusM - shrinkPerSec
+        );
+      }
+
+      // 4. Process Every Runner's Stationary Timer, Survival Drip, Proximity Adrenaline & Challenges
+      const activeChasers = gameState.players.filter(p => p.team === 'CHASER');
+
+      gameState.players.forEach(runner => {
+        if (runner.team !== 'RUNNER' || runner.status !== 'ACTIVE') return;
+
+        // A. Stationary Timer (inside 25m anchor)
+        runner.stationarySeconds++;
+        const mult = getCampingMultiplier(runner.stationarySeconds);
+
+        // B. Pro-rated Base Survival Drip every 6 seconds
+        if (tickCounter % 6 === 0) {
+          const dripCoins = (gameState.economy.baseSurvivalPerMin / 10) * mult;
+          runner.coins = Math.round((runner.coins + dripCoins) * 10) / 10;
+        }
+
+        // C. Find nearest Chaser distance
+        let minChaserDist = Infinity;
+        activeChasers.forEach(chaser => {
+          const d = haversineMeters(runner.lat, runner.lng, chaser.lat, chaser.lng);
+          if (d < minChaserDist) minChaserDist = d;
+        });
+        runner.nearestChaserDist = minChaserDist;
+
+        // D. Proximity Adrenaline Bonus (every 10 seconds inside 100m or 50m)
+        if (tickCounter % 10 === 0) {
+          if (minChaserDist <= gameState.radar.extremeM) {
+            runner.coins += 40;
+            if (runner.id === gameState.activePlayerId) {
+              playTacticalSound('coin');
+              showGlobalBanner(`🔥 EXTREME PROXIMITY (<${gameState.radar.extremeM}m): +40 Adrenaline Coins!`, 'rose');
+            }
+          } else if (minChaserDist <= gameState.radar.dangerM) {
+            runner.coins += 15;
+            if (runner.id === gameState.activePlayerId) {
+              playTacticalSound('coin');
+              showGlobalBanner(`🚨 DANGER PROXIMITY (<${gameState.radar.dangerM}m): +15 Adrenaline Coins!`, 'amber');
+            }
+          }
+        }
+
+        // E. Out-of-Bounds Safe Zone Check
+        const distFromZoneCenter = haversineMeters(
+          runner.lat,
+          runner.lng,
+          gameState.zone.centerLat,
+          gameState.zone.centerLng
+        );
+        if (distFromZoneCenter > gameState.zone.currentRadiusM) {
+          runner.outOfBoundsGraceSec = Math.max(0, runner.outOfBoundsGraceSec - 1);
+          if (runner.outOfBoundsGraceSec === 0 && tickCounter % 15 === 0) {
+            showGlobalBanner(`⚠️ ${runner.callsign} is OUT OF BOUNDS! Live GPS pin exposed to Chasers!`, 'rose');
+          }
+        } else {
+          runner.outOfBoundsGraceSec = 60;
+        }
+
+        // F. Challenge Cooldown & Active Challenge Timer
+        if (runner.challengeCooldownSec > 0) {
+          runner.challengeCooldownSec--;
+        }
+
+        if (runner.activeChallenge) {
+          const ch = runner.activeChallenge;
+          ch.elapsedSec = (ch.elapsedSec || 0) + 1;
+
+          if (ch.card.type === 'timer' || ch.card.type === 'blindfold') {
+            if (ch.elapsedSec >= ch.card.durationSec) {
+              completeActiveChallenge(runner);
+            }
+          } else if (ch.card.type === 'stationary_strict') {
+            const drift = haversineMeters(ch.startLat, ch.startLng, runner.lat, runner.lng);
+            if (drift > ch.card.maxDriftMeters) {
+              // Reset timer if drifted > 15m
+              ch.startLat = runner.lat;
+              ch.startLng = runner.lng;
+              ch.elapsedSec = 0;
+            } else if (ch.elapsedSec >= ch.card.durationSec) {
+              completeActiveChallenge(runner);
+            }
+          } else if (ch.card.type === 'proximity_hold') {
+            if (minChaserDist <= gameState.radar.cautionM) {
+              ch.proxHoldSec = (ch.proxHoldSec || 0) + 1;
+              if (ch.proxHoldSec >= ch.card.durationSec) {
+                completeActiveChallenge(runner);
+              }
+            }
+          } else if (ch.card.type === 'distance') {
+            if ((ch.progressM || 0) >= ch.card.requiredMeters) {
+              completeActiveChallenge(runner);
+            }
+          }
+        }
+      });
+
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    /*************************************************************
+     * 9. HUD & TAB UPDATERS
+     *************************************************************/
+    function updateAllHUD() {
+      const p = getActivePlayer();
+      const now = Date.now();
+      const isRunner = p.team === 'RUNNER';
+
+      // Header Role & Callsign
+      document.getElementById('activeCallsignHeader').textContent = p.callsign;
+      document.getElementById('headerRoomCode').textContent = gameState.roomCode;
+      const teamBadge = document.getElementById('activeTeamBadge');
+      const roleDot = document.getElementById('roleIndicatorDot');
+
+      if (isRunner) {
+        teamBadge.textContent = p.status === 'CAUGHT' ? 'SPECTATOR' : 'RUNNER';
+        teamBadge.className = 'text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        roleDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse';
+      } else {
+        teamBadge.textContent = 'CHASER';
+        teamBadge.className = 'text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40';
+        roleDot.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse';
+      }
+
+      // Headstart Badge
+      const hsBadge = document.getElementById('headstartHeaderBadge');
+      if (gameState.headstartSecondsLeft > 0) {
+        hsBadge.classList.remove('hidden');
+        hsBadge.classList.add('flex');
+        document.getElementById('headstartTimerHeader').textContent = formatMMSS(gameState.headstartSecondsLeft);
+      } else {
+        hsBadge.classList.add('hidden');
+      }
+
+      // Toggle Runner vs Chaser Top Telemetry & Bottom Nav
+      document.getElementById('runnerTelemetryBar').className = isRunner ? 'grid grid-cols-4 gap-1.5 text-center font-mono' : 'hidden';
+      document.getElementById('chaserTelemetryBar').className = !isRunner ? 'grid grid-cols-4 gap-1.5 text-center font-mono' : 'hidden';
+      document.getElementById('runnerBottomNav').className = isRunner ? 'grid grid-cols-4 gap-1.5 max-w-lg mx-auto' : 'hidden';
+      document.getElementById('chaserBottomNav').className = !isRunner ? 'grid grid-cols-3 gap-2 max-w-lg mx-auto' : 'hidden';
+
+      // Freeze Overlay Check
+      const freezeOverlay = document.getElementById('freezeOverlay');
+      if (p.frozenUntil > now) {
+        freezeOverlay.classList.remove('hidden');
+        const remSec = Math.ceil((p.frozenUntil - now) / 1000);
+        document.getElementById('freezeCountdownText').textContent = formatMMSS(remSec);
+        const drift = haversineMeters(p.freezeAnchorLat, p.freezeAnchorLng, p.lat, p.lng);
+        const driftEl = document.getElementById('freezeDriftMeters');
+        driftEl.textContent = `${drift.toFixed(1)}m / 15m`;
+        driftEl.className = drift > 15 ? 'text-rose-400' : 'text-emerald-400';
+        const badge = document.getElementById('freezeBreachBadge');
+        if (p.freezeBreachUntil > now) {
+          badge.textContent = 'BREACHED! PIN LIVE';
+          badge.className = 'text-[10px] px-1.5 py-0.5 rounded bg-rose-500 text-white font-bold';
+        } else {
+          badge.textContent = 'ANCHOR HOLDING';
+          badge.className = 'text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300';
+        }
+      } else {
+        freezeOverlay.classList.add('hidden');
+      }
+
+      // Map Zone Telemetry
+      document.getElementById('mapZoneRadiusText').textContent = `${Math.round(gameState.zone.currentRadiusM)}m`;
+      document.getElementById('mapFinalRadiusText').textContent = `${gameState.zone.finalRadiusM}m`;
+      document.getElementById('mapShrinkRateText').textContent = `${gameState.zone.shrinkRateMPerMin}m/min`;
+
+      // Update Runner-Specific HUD
+      if (isRunner) {
+        const isBlindfolded = p.activeChallenge && p.activeChallenge.card.type === 'blindfold';
+        document.getElementById('blindfoldBanner').classList.toggle('hidden', !isBlindfolded);
+        if (isBlindfolded) {
+          const rem = Math.max(0, p.activeChallenge.card.durationSec - (p.activeChallenge.elapsedSec || 0));
+          document.getElementById('blindfoldTimerText').textContent = `Remaining: ${formatMMSS(rem)}`;
+        }
+
+        document.getElementById('runnerCoinsText').textContent = Math.floor(p.coins);
+        document.getElementById('runnerShopCoins').textContent = Math.floor(p.coins);
+        const mult = getCampingMultiplier(p.stationarySeconds);
+        document.getElementById('runnerMultiplierText').textContent = `${mult.toFixed(1)}x`;
+        document.getElementById('runnerStationaryTimeText').textContent = `(${formatMMSS(p.stationarySeconds)})`;
+        document.getElementById('runnerNextPingText').textContent = isBlindfolded ? '??:??' : formatMMSS(gameState.nextPingInSec);
+        document.getElementById('runnerGhostBadge').classList.toggle('hidden', !p.ghostNextPing);
+        document.getElementById('runnerCatchCodeText').textContent = p.catchCode;
+
+        // Proximity Radar Banner
+        const radarBanner = document.getElementById('runnerRadarBanner');
+        const chaserHud = document.getElementById('chaserMapHudBanner');
+        chaserHud.classList.add('hidden');
+
+        if (isBlindfolded) {
+          radarBanner.classList.add('hidden');
+        } else {
+          radarBanner.classList.remove('hidden');
+          const d = p.nearestChaserDist ?? Infinity;
+          const icon = document.getElementById('radarStatusIcon');
+          const title = document.getElementById('radarStatusTitle');
+          const sub = document.getElementById('radarStatusSub');
+          const pill = document.getElementById('radarBonusPill');
+
+          if (d <= gameState.radar.extremeM) {
+            radarBanner.className = 'bg-rose-950/95 backdrop-blur-md border-2 border-rose-500 rounded-xl px-3 py-2 shadow-xl flex items-center justify-between danger-strobe';
+            icon.className = 'inline-block w-3 h-3 rounded-full bg-rose-400 animate-ping';
+            title.textContent = `🔥 EXTREME DANGER: CHASER WITHIN ${ gameState.radar.extremeM }m! (${Math.round(d)}m)`;
+            title.className = 'font-mono text-xs font-extrabold text-white tracking-wide';
+            sub.textContent = 'Maximum Adrenaline Coin Drip Active (+40 Coins / 10s)';
+            pill.classList.remove('hidden');
+            pill.textContent = '+40c / 10s';
+          } else if (d <= gameState.radar.dangerM) {
+            radarBanner.className = 'bg-rose-950/90 backdrop-blur-md border-2 border-orange-500 rounded-xl px-3 py-2 shadow-xl flex items-center justify-between';
+            icon.className = 'inline-block w-3 h-3 rounded-full bg-orange-400 animate-pulse';
+            title.textContent = `🚨 DANGER: CHASER WITHIN ${ gameState.radar.dangerM }m! (${Math.round(d)}m)`;
+            title.className = 'font-mono text-xs font-extrabold text-orange-300 tracking-wide';
+            sub.textContent = 'Danger Circle Adrenaline Drip Active (+15 Coins / 10s)';
+            pill.classList.remove('hidden');
+            pill.textContent = '+15c / 10s';
+          } else if (d <= gameState.radar.cautionM) {
+            radarBanner.className = 'bg-amber-950/90 backdrop-blur-md border-2 border-amber-500/80 rounded-xl px-3 py-2 shadow-xl flex items-center justify-between';
+            icon.className = 'inline-block w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse';
+            title.textContent = `⚠️ CAUTION: CHASER WITHIN ${ gameState.radar.cautionM }m (${Math.round(d)}m)`;
+            title.className = 'font-mono text-xs font-extrabold text-amber-300 tracking-wide';
+            sub.textContent = 'Chaser detected inside outer perimeter radar';
+            pill.classList.add('hidden');
+          } else {
+            radarBanner.className = 'bg-slate-950/90 backdrop-blur-md border border-emerald-500/50 rounded-xl px-3 py-2 shadow-xl flex items-center justify-between';
+            icon.className = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-400';
+            title.textContent = 'CLEAR — NO CHASERS IN RANGE';
+            title.className = 'font-mono text-xs font-extrabold text-emerald-300 tracking-wide';
+            sub.textContent = `Camping Mult: ${mult.toFixed(1)}x • Nearest Chaser > ${gameState.radar.cautionM}m`;
+            pill.classList.add('hidden');
+          }
+        }
+
+        // Out-of-bounds banner
+        const oobBanner = document.getElementById('outOfBoundsBanner');
+        const distCenter = haversineMeters(p.lat, p.lng, gameState.zone.centerLat, gameState.zone.centerLng);
+        if (distCenter > gameState.zone.currentRadiusM) {
+          oobBanner.classList.remove('hidden');
+          document.getElementById('oobGraceTimerText').textContent = `${p.outOfBoundsGraceSec}s`;
+        } else {
+          oobBanner.classList.add('hidden');
+        }
+
+        // Tickets count badge on Nav
+        const totalTickets = Object.values(p.tickets || {}).reduce((a, b) => a + b, 0);
+        document.getElementById('navTicketsLeftCount').textContent = totalTickets;
+        document.getElementById('contractReadyDot').classList.toggle('hidden', p.challengeCooldownSec > 0 || !!p.activeChallenge);
+
+        renderRunnerChallengesTab(p);
+        renderRunnerTransportTab(p);
+      } else {
+        // Update Chaser-Specific HUD
+        document.getElementById('runnerRadarBanner').classList.add('hidden');
+        document.getElementById('outOfBoundsBanner').classList.add('hidden');
+        document.getElementById('blindfoldBanner').classList.add('hidden');
+        const chaserHud = document.getElementById('chaserMapHudBanner');
+        chaserHud.classList.remove('hidden');
+        chaserHud.classList.add('flex');
+
+        document.getElementById('chaserCoinsText').textContent = Math.floor(p.coins);
+        document.getElementById('chaserShopCoins').textContent = Math.floor(p.coins);
+        document.getElementById('chaserNextPingText').textContent = formatMMSS(gameState.nextPingInSec);
+        const pingSize = getCurrentScaledPingSize();
+        document.getElementById('chaserPingSizeText').textContent = `${pingSize}×${pingSize}m`;
+
+        const activeRunners = gameState.players.filter(r => r.team === 'RUNNER' && r.status === 'ACTIVE');
+        const totalRunners = gameState.players.filter(r => r.team === 'RUNNER').length;
+        document.getElementById('chaserRunnersLeftText').textContent = `${activeRunners.length} / ${totalRunners}`;
+
+        // Patrol Mileage Progress
+        const pm = Math.round(p.patrolMeters || 0);
+        document.getElementById('chaserPatrolProgressText').textContent = `${pm}m / 500m`;
+        document.getElementById('chaserPatrolBar').style.width = `${Math.min(100, (pm / 500) * 100)}%`;
+        document.getElementById('precisionStatusBadge').classList.toggle('hidden', !gameState.precisionNextPing);
+
+        // Bloodhound Compass Banner
+        const bhBanner = document.getElementById('bloodhoundBanner');
+        if (gameState.bloodhoundUntil > now) {
+          bhBanner.classList.remove('hidden');
+          const rem = Math.ceil((gameState.bloodhoundUntil - now) / 1000);
+          document.getElementById('bloodhoundTimerText').textContent = formatMMSS(rem);
+        } else {
+          bhBanner.classList.add('hidden');
+        }
+
+        renderCatchAndIntelTab();
+      }
+    }
+
+    /*************************************************************
+     * 10. RUNNER CHALLENGES DECK LOGIC (1 PER HOUR)
+     *************************************************************/
+    function renderRunnerChallengesTab(runner) {
+      const cooldownBox = document.getElementById('challengeCooldownBox');
+      const drawBox = document.getElementById('challengeDrawBox');
+      const activeBox = document.getElementById('activeChallengeCardBox');
+      document.getElementById('challengeCooldownRuleLabel').textContent = `1 Card / ${gameState.economy.cardCooldownMins}m`;
+
+      if (runner.activeChallenge) {
+        cooldownBox.classList.add('hidden');
+        drawBox.classList.add('hidden');
+        activeBox.classList.remove('hidden');
+
+        const ch = runner.activeChallenge;
+        document.getElementById('activeCardTag').textContent = ch.card.tag;
+        document.getElementById('activeCardTitle').textContent = ch.card.title;
+        document.getElementById('activeCardReward').textContent = `+${ch.card.reward} 🪙`;
+        document.getElementById('activeCardDesc').textContent = ch.card.desc;
+
+        let pct = 0;
+        let subText = '';
+        if (ch.card.type === 'timer' || ch.card.type === 'blindfold' || ch.card.type === 'stationary_strict') {
+          pct = Math.min(100, Math.round(((ch.elapsedSec || 0) / ch.card.durationSec) * 100));
+          subText = `Elapsed: ${formatMMSS(ch.elapsedSec || 0)} / ${formatMMSS(ch.card.durationSec)}`;
+        } else if (ch.card.type === 'pings') {
+          pct = Math.min(100, Math.round(((ch.pingsSurvived || 0) / ch.card.requiredPings) * 100));
+          const drift = Math.round(haversineMeters(ch.startLat, ch.startLng, runner.lat, runner.lng));
+          subText = `Pings Survived: ${ch.pingsSurvived || 0} / ${ch.card.requiredPings} • Current Drift: ${drift}m (Max 30m)`;
+        } else if (ch.card.type === 'proximity_hold') {
+          pct = Math.min(100, Math.round(((ch.proxHoldSec || 0) / ch.card.durationSec) * 100));
+          subText = `Caution Zone Time: ${formatMMSS(ch.proxHoldSec || 0)} / ${formatMMSS(ch.card.durationSec)}`;
+        } else if (ch.card.type === 'distance') {
+          pct = Math.min(100, Math.round(((ch.progressM || 0) / ch.card.requiredMeters) * 100));
+          subText = `Distance Covered: ${Math.round(ch.progressM || 0)}m / ${ch.card.requiredMeters}m`;
+        } else if (ch.card.type === 'waypoint' && ch.waypoint) {
+          const dist = Math.round(haversineMeters(runner.lat, runner.lng, ch.waypoint.lat, ch.waypoint.lng));
+          pct = Math.max(5, Math.min(100, Math.round(((850 - dist) / 850) * 100)));
+          subText = `Distance to Dead Drop Pin: ${dist}m (Reach <= 25m on Map)`;
+        }
+
+        document.getElementById('activeCardProgressValue').textContent = `${pct}%`;
+        document.getElementById('activeCardProgressBar').style.width = `${pct}%`;
+        document.getElementById('activeCardSubTelemetry').textContent = subText;
+      } else if (runner.challengeCooldownSec > 0) {
+        activeBox.classList.add('hidden');
+        drawBox.classList.add('hidden');
+        cooldownBox.classList.remove('hidden');
+        document.getElementById('challengeCooldownTimerText').textContent = formatMMSS(runner.challengeCooldownSec);
+      } else {
+        activeBox.classList.add('hidden');
+        cooldownBox.classList.add('hidden');
+        drawBox.classList.remove('hidden');
+      }
+    }
+
+    document.getElementById('drawChallengeCardBtn').addEventListener('click', () => {
+      const p = getActivePlayer();
+      if (p.team !== 'RUNNER' || p.challengeCooldownSec > 0 || p.activeChallenge) return;
+
+      const card = CHALLENGE_DECK[Math.floor(Math.random() * CHALLENGE_DECK.length)];
+      const challengeObj = {
+        card,
+        startedAt: Date.now(),
+        elapsedSec: 0,
+        progressM: 0,
+        pingsSurvived: 0,
+        proxHoldSec: 0,
+        startLat: p.lat,
+        startLng: p.lng,
+        waypoint: null
+      };
+
+      if (card.type === 'waypoint') {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 650 + Math.random() * 250;
+        challengeObj.waypoint = offsetLatLng(
+          gameState.zone.centerLat,
+          gameState.zone.centerLng,
+          Math.cos(angle) * dist,
+          Math.sin(angle) * dist
+        );
+      }
+
+      if (card.onStart) card.onStart(p);
+
+      p.activeChallenge = challengeObj;
+      playTacticalSound('ping');
+      addEventLog(`${p.callsign} drew High-Stakes Contract: "${card.title}" (+${card.reward}c).`);
+      syncMapLayers();
+      updateAllHUD();
+    });
+
+    function completeActiveChallenge(runner) {
+      if (!runner.activeChallenge) return;
+      const reward = runner.activeChallenge.card.reward;
+      const title = runner.activeChallenge.card.title;
+      runner.coins += reward;
+      runner.activeChallenge = null;
+      runner.challengeCooldownSec = gameState.economy.cardCooldownMins * 60;
+
+      playTacticalSound('coin');
+      showGlobalBanner(`🏆 CONTRACT COMPLETED: "${title}"! +${reward} Coins awarded! Deck locked for ${gameState.economy.cardCooldownMins}m.`, 'emerald');
+      addEventLog(`${runner.callsign} completed contract "${title}" (+${reward} Coins).`);
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    document.getElementById('completeChallengeBtn').addEventListener('click', () => {
+      const p = getActivePlayer();
+      completeActiveChallenge(p);
+    });
+
+    document.getElementById('vetoChallengeBtn').addEventListener('click', () => {
+      const p = getActivePlayer();
+      if (!p.activeChallenge) return;
+      const title = p.activeChallenge.card.title;
+      p.activeChallenge = null;
+      p.challengeCooldownSec = gameState.economy.cardCooldownMins * 60;
+      showGlobalBanner(`✕ Contract "${title}" Vetoed. ${gameState.economy.cardCooldownMins}-minute lockout started.`, 'amber');
+      addEventLog(`${p.callsign} vetoed contract "${title}" (${gameState.economy.cardCooldownMins}m cooldown).`);
+      syncMapLayers();
+      updateAllHUD();
+    });
+
+    function resetChallengeCooldownDev() {
+      const p = getActivePlayer();
+      p.challengeCooldownSec = 0;
+      p.activeChallenge = null;
+      showGlobalBanner(`🃏 Dev Sim: High-Stakes Challenge Cooldown reset!`, 'emerald');
+      updateAllHUD();
+    }
+
+    /*************************************************************
+     * 11. RUNNER TRANSPORT WALLET LOGIC (NO CARS)
+     *************************************************************/
+    function renderRunnerTransportTab(runner) {
+      const grid = document.getElementById('transportTicketsGrid');
+      const now = Date.now();
+
+      // Active transit boarding window banner
+      const banner = document.getElementById('activeTransitBanner');
+      if (runner.activeTransit && runner.activeTransit.expiresAt > now) {
+        banner.classList.remove('hidden');
+        document.getElementById('activeTransitTitle').textContent = `${runner.activeTransit.icon} ${runner.activeTransit.name} Boarding Active`;
+        const rem = Math.ceil((runner.activeTransit.expiresAt - now) / 1000);
+        document.getElementById('activeTransitTimer').textContent = formatMMSS(rem);
+      } else {
+        banner.classList.add('hidden');
+      }
+
+      grid.innerHTML = TRANSPORT_MODES.map(mode => {
+        const count = runner.tickets[mode.id] || 0;
+        const depleted = count <= 0;
+        return `
+          <div class="bg-slate-900/90 border ${depleted ? 'border-slate-800 opacity-75' : 'border-emerald-500/40'} rounded-xl p-4 flex flex-col justify-between gap-3">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-2.5">
+                <span class="text-2xl">${mode.icon}</span>
+                <div>
+                  <h4 class="font-display font-bold text-sm text-white">${mode.name}</h4>
+                  <p class="text-[11px] text-slate-400">${mode.desc}</p>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded ${depleted ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}">
+                ${depleted ? 'DEPLETED (0)' : `${count} TICKET`}
+              </span>
+            </div>
+            <button
+              onclick="useTransportTicket('${mode.id}')"
+              ${depleted ? 'disabled' : ''}
+              class="w-full py-2.5 rounded-lg font-mono font-bold text-xs transition ${depleted ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 active:scale-95'}"
+            >
+              ${depleted ? '🔒 LOCKED — RE-BUY IN SHOP (250c)' : `ACTIVATE ${mode.name.toUpperCase()} TICKET`}
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function useTransportTicket(modeId) {
+      const p = getActivePlayer();
+      if (p.team !== 'RUNNER') return;
+      if ((p.tickets[modeId] || 0) <= 0) return;
+
+      const mode = TRANSPORT_MODES.find(m => m.id === modeId);
+      p.tickets[modeId]--;
+      p.activeTransit = {
+        modeId,
+        name: mode.name,
+        icon: mode.icon,
+        expiresAt: Date.now() + 20 * 60 * 1000 // 20 mins boarding window
+      };
+
+      playTacticalSound('coin');
+      showGlobalBanner(`${mode.icon} ${mode.name} Ticket Activated! 20-minute transit window started.`, 'emerald');
+      addEventLog(`${p.callsign} expended their ${mode.name} ticket.`);
+      updateAllHUD();
+    }
+
+    /*************************************************************
+     * 12. ANONYMIZED POWER-UPS & SHOPS (RUNNER & CHASER)
+     *************************************************************/
+    function triggerOpposingTeamPowerupAlert(fromTeam) {
+      playTacticalSound('alert');
+      if (syncChannel) {
+        syncChannel.postMessage({ type: 'POWERUP_ALERT', fromTeam });
+      }
+      showGlobalBanner(`⚠️ [TACTICAL ALERT] The opposing team just activated a power-up!`, 'amber');
+    }
+
+    function handleIncomingOpposingAlert(fromTeam) {
+      const p = getActivePlayer();
+      if (p.team !== fromTeam) {
+        playTacticalSound('alert');
+        showGlobalBanner(`⚠️ [TACTICAL ALERT] The opposing team just activated a power-up!`, 'amber');
+      }
+    }
+
+    function populateFreezeDropdowns() {
+      const runnerSelect = document.getElementById('runnerFreezeTargetSelect');
+      const chaserSelect = document.getElementById('chaserFreezeTargetSelect');
+
+      const chasers = gameState.players.filter(p => p.team === 'CHASER');
+      runnerSelect.innerHTML = chasers.map(c => `<option value="${c.id}">❄️ Freeze ${c.callsign}</option>`).join('');
+
+      const runners = gameState.players.filter(p => p.team === 'RUNNER' && p.status === 'ACTIVE');
+      chaserSelect.innerHTML = runners.map(r => `<option value="${r.id}">❄️ Freeze ${r.callsign}</option>`).join('');
+    }
+
+    function buyRunnerPowerup(itemType) {
+      const p = getActivePlayer();
+      if (p.team !== 'RUNNER') return;
+
+      const costs = {
+        reup_ticket: 250,
+        chaser_sweep: 350,
+        ghost_jammer: 300,
+        decoy_ping: 200,
+        cryo_freeze: 800
+      };
+      const cost = costs[itemType];
+      if (p.coins < cost) {
+        showGlobalBanner(`❌ Insufficient Credits! Need ${cost} Coins (Have ${Math.floor(p.coins)}).`, 'rose');
+        return;
+      }
+
+      p.coins -= cost;
+
+      if (itemType === 'reup_ticket') {
+        const modeId = document.getElementById('reupTransportSelect').value;
+        p.tickets[modeId] = (p.tickets[modeId] || 0) + 1;
+        showGlobalBanner(`🎫 Restored +1 ${modeId.toUpperCase()} Ticket!`, 'emerald');
+      } else if (itemType === 'chaser_sweep') {
+        gameState.chaserRadarSweepUntil = Date.now() + 30000;
+        showGlobalBanner(`📡 CHASER COUNTER-SWEEP ACTIVE! All Chasers revealed on Map for 30s!`, 'emerald');
+        switchTab('map');
+      } else if (itemType === 'ghost_jammer') {
+        p.ghostNextPing = true;
+        showGlobalBanner(`👻 GHOST JAMMER ARMED! You are hidden from the next Chaser Ping.`, 'emerald');
+      } else if (itemType === 'decoy_ping') {
+        p.decoyNextPing = true;
+        showGlobalBanner(`🎭 DECOY TRANSMITTER ARMED! Fake second box will spawn on next ping.`, 'emerald');
+      } else if (itemType === 'cryo_freeze') {
+        const targetId = document.getElementById('runnerFreezeTargetSelect').value;
+        const target = gameState.players.find(x => x.id === targetId);
+        if (target) {
+          applyFreezeLockdown(target);
+        }
+      }
+
+      triggerOpposingTeamPowerupAlert('RUNNER');
+      addEventLog(`⚠️ [ANONYMIZED] A Runner deployed a tactical shop power-up.`);
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    function buyChaserPowerup(itemType) {
+      const p = getActivePlayer();
+      if (p.team !== 'CHASER') return;
+
+      const costs = {
+        instant_ping: 350,
+        precision_ping: 250,
+        breadcrumb_trail: 300,
+        bloodhound: 200,
+        lockdown_freeze: 800
+      };
+      const cost = costs[itemType];
+      if (p.coins < cost) {
+        showGlobalBanner(`❌ Insufficient Credits! Need ${cost} Coins (Have ${Math.floor(p.coins)}).`, 'rose');
+        return;
+      }
+
+      p.coins -= cost;
+
+      if (itemType === 'instant_ping') {
+        triggerGlobalPingSweep(true);
+        showGlobalBanner(`🛰️ INSTANT SATELLITE SWEEP COMPLETE! Fresh Ping Boxes on Map!`, 'emerald');
+        switchTab('map');
+      } else if (itemType === 'precision_ping') {
+        gameState.precisionNextPing = true;
+        showGlobalBanner(`🎯 PRECISION CALIBRATION ARMED! Next Ping Box size halved (-50%)!`, 'cyan');
+      } else if (itemType === 'breadcrumb_trail') {
+        spawnRunnerBreadcrumbTrail();
+        switchTab('map');
+      } else if (itemType === 'bloodhound') {
+        gameState.bloodhoundUntil = Date.now() + 180000; // 3 mins
+        gameState.lastNearestRunnerDist = null;
+        updateBloodhoundCompass(p);
+        showGlobalBanner(`🔥 BLOODHOUND THERMAL COMPASS ACTIVE (3 MINS)! Move on map to track Warmer/Colder.`, 'amber');
+        switchTab('map');
+      } else if (itemType === 'lockdown_freeze') {
+        const targetId = document.getElementById('chaserFreezeTargetSelect').value;
+        const target = gameState.players.find(x => x.id === targetId);
+        if (target) {
+          applyFreezeLockdown(target);
+        }
+      }
+
+      triggerOpposingTeamPowerupAlert('CHASER');
+      addEventLog(`⚠️ [ANONYMIZED] A Chaser deployed a hunter shop power-up.`);
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    function applyFreezeLockdown(targetPlayer) {
+      targetPlayer.frozenUntil = Date.now() + 120000; // 120 seconds
+      targetPlayer.freezeAnchorLat = targetPlayer.lat;
+      targetPlayer.freezeAnchorLng = targetPlayer.lng;
+      playTacticalSound('freeze');
+      showGlobalBanner(`❄️ CRYO-FREEZE DEPLOYED! Target locked to a 15m GPS anchor for 120s!`, 'cyan');
+    }
+
+    // Spawn a 3-point movement trail capped at 120m between a random Runner's last two positions
+    function spawnRunnerBreadcrumbTrail() {
+      const runners = gameState.players.filter(r => r.team === 'RUNNER' && r.status === 'ACTIVE');
+      if (runners.length === 0) return;
+      const target = runners[Math.floor(Math.random() * runners.length)];
+
+      const start = target.prevPingCoord || { lat: target.lat - 0.0012, lng: target.lng - 0.0012 };
+      const totalDist = haversineMeters(start.lat, start.lng, target.lat, target.lng);
+      const capRatio = totalDist > 120 ? 120 / totalDist : 1;
+
+      const endLat = start.lat + (target.lat - start.lat) * capRatio;
+      const endLng = start.lng + (target.lng - start.lng) * capRatio;
+      const midLat = (start.lat + endLat) / 2 + (Math.random() - 0.5) * 0.0002;
+      const midLng = (start.lng + endLng) / 2 + (Math.random() - 0.5) * 0.0002;
+
+      gameState.activeTrails.push({
+        runnerCallsign: target.callsign,
+        points: [
+          [start.lat, start.lng],
+          [midLat, midLng],
+          [endLat, endLng]
+        ],
+        expiresAt: Date.now() + 180000 // Visible for 3 mins
+      });
+
+      showGlobalBanner(`👣 BREADCRUMB TRAIL ACQUIRED! 120m directional vector drawn on Hunter Map.`, 'cyan');
+    }
+
+    function updateBloodhoundCompass(chaser) {
+      const runners = gameState.players.filter(r => r.team === 'RUNNER' && r.status === 'ACTIVE');
+      if (runners.length === 0) return;
+      let nearest = Infinity;
+      runners.forEach(r => {
+        const d = haversineMeters(chaser.lat, chaser.lng, r.lat, r.lng);
+        if (d < nearest) nearest = d;
+      });
+
+      const statusEl = document.getElementById('bloodhoundStatusText');
+      const emojiEl = document.getElementById('bloodhoundEmoji');
+
+      if (gameState.lastNearestRunnerDist === null) {
+        statusEl.textContent = `THERMAL LOCK ACQUIRED — MOVE TO TEST VECTOR`;
+        emojiEl.textContent = '🧭';
+      } else if (nearest < gameState.lastNearestRunnerDist - 1) {
+        statusEl.textContent = `WARMER 🔥 — CLOSING IN ON TARGET!`;
+        statusEl.className = 'text-xs font-mono font-extrabold text-amber-300';
+        emojiEl.textContent = '🔥';
+      } else if (nearest > gameState.lastNearestRunnerDist + 1) {
+        statusEl.textContent = `COLDER ❄️ — MOVING AWAY FROM TARGET`;
+        statusEl.className = 'text-xs font-mono font-extrabold text-cyan-300';
+        emojiEl.textContent = '❄️';
+      }
+      gameState.lastNearestRunnerDist = nearest;
+    }
+
+    /*************************************************************
+     * 13. CATCH VERIFICATION & BOUNTY SPLIT ENGINE
+     *************************************************************/
+    function executeRunnerCatch(runner, catchingChaser) {
+      if (!runner || runner.status === 'CAUGHT') return;
+
+      const base = gameState.economy.baseCatchBounty;
+      const assistBonus = Math.round(base * 0.10); // 10% of base
+      const catcherPayout = base + assistBonus;    // Base + 10%
+
+      // 1. Award Catching Chaser (Base + 10%)
+      catchingChaser.coins += catcherPayout;
+
+      // 2. Award all other Chasers (+10% of Base)
+      gameState.players.forEach(c => {
+        if (c.team === 'CHASER' && c.id !== catchingChaser.id) {
+          c.coins += assistBonus;
+        }
+      });
+
+      // 3. Handle Elimination vs Zombies Infection Mode
+      if (gameState.gameMode === 'ZOMBIES') {
+        runner.team = 'CHASER';
+        runner.status = 'ACTIVE';
+        runner.patrolMeters = 0;
+      } else {
+        runner.status = 'CAUGHT';
+      }
+
+      // 4. Split an amount equal to Catching Chaser's payout (Base + 10%) among remaining uncaught Runners
+      const survivingRunners = gameState.players.filter(r => r.team === 'RUNNER' && r.status === 'ACTIVE');
+      let splitPerSurvivor = 0;
+      if (survivingRunners.length > 0) {
+        splitPerSurvivor = Math.round(catcherPayout / survivingRunners.length);
+        survivingRunners.forEach(r => {
+          r.coins += splitPerSurvivor;
+        });
+      }
+
+      // Remove caught runner's ping boxes
+      gameState.activePingBoxes = gameState.activePingBoxes.filter(b => b.runnerId !== runner.id);
+
+      playTacticalSound('alert');
+      const modeMsg = gameState.gameMode === 'ZOMBIES' ? `${runner.callsign} converted to CHASER!` : `${runner.callsign} ELIMINATED!`;
+      showGlobalBanner(
+        `🎯 TAG CONFIRMED! ${catchingChaser.callsign} caught ${runner.callsign}! Catcher: +${catcherPayout}c | Other Chasers: +${assistBonus}c | Surviving Runners: +${splitPerSurvivor}c each! (${modeMsg})`,
+        'emerald'
+      );
+
+      addEventLog(
+        `🎯 CATCH: ${catchingChaser.callsign} tagged ${runner.callsign}. Payouts: Catcher +${catcherPayout}c, Chaser Assists +${assistBonus}c, Survivor Split +${splitPerSurvivor}c.`
+      );
+
+      populateFreezeDropdowns();
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    document.getElementById('submitCatchCodeBtn').addEventListener('click', () => {
+      const code = document.getElementById('catchCodeInput').value.trim();
+      const chaser = getActivePlayer();
+      const runner = gameState.players.find(r => r.team === 'RUNNER' && r.status === 'ACTIVE' && r.catchCode === code);
+
+      if (!runner) {
+        showGlobalBanner(`❌ Invalid or already caught 4-digit Catch Code!`, 'rose');
+        return;
+      }
+      document.getElementById('catchCodeInput').value = '';
+      executeRunnerCatch(runner, chaser);
+    });
+
+    function renderCatchAndIntelTab() {
+      const base = gameState.economy.baseCatchBounty;
+      const assist = Math.round(base * 0.10);
+      const catcherTotal = base + assist;
+
+      document.getElementById('gameModeBadgeCatch').textContent = `MODE: ${gameState.gameMode}`;
+      document.getElementById('formulaBaseBounty').textContent = base;
+      document.getElementById('formulaCatcherCut').textContent = `+${catcherTotal} Coins (Base+10%)`;
+      document.getElementById('formulaAssistCut').textContent = `+${assist} Coins (+10% Assist)`;
+      document.getElementById('formulaSurvivorPool').textContent = `Split ${catcherTotal} Coins Evenly`;
+
+      // Proximity Tag (<25m) Buttons
+      const activeChaser = getActivePlayer();
+      const proxContainer = document.getElementById('proximityTagContainer');
+      const runners = gameState.players.filter(r => r.team === 'RUNNER' && r.status === 'ACTIVE');
+
+      let anyWithin25 = false;
+      proxContainer.innerHTML = runners.map(r => {
+        const d = Math.round(haversineMeters(activeChaser.lat, activeChaser.lng, r.lat, r.lng));
+        const inRange = d <= 25;
+        if (inRange) anyWithin25 = true;
+        return `
+          <div class="flex items-center justify-between bg-slate-950/90 border ${inRange ? 'border-emerald-400' : 'border-slate-800'} rounded-xl px-3 py-2 font-mono text-xs">
+            <div>
+              <span class="font-bold text-white">${r.callsign}</span>
+              <span class="text-[10px] ${inRange ? 'text-emerald-300 font-bold' : 'text-slate-400'} ml-2">
+                ${inRange ? `⚡ IN TAG RANGE (${d}m)` : `GPS Dist: ${d}m (Need <=25m or Code: ${r.catchCode})`}
+              </span>
+            </div>
+            <button
+              onclick="triggerProximityTag('${r.id}')"
+              ${!inRange ? 'disabled' : ''}
+              class="px-3 py-1 rounded-lg font-bold text-[11px] ${inRange ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}"
+            >
+              PROXIMITY TAG
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('proxCatchReadyDot').classList.toggle('hidden', !anyWithin25);
+
+      // Roster & Recon Box Status
+      const rosterEl = document.getElementById('chaserTargetRosterList');
+      const allRunners = gameState.players.filter(r => r.team === 'RUNNER');
+      rosterEl.innerHTML = allRunners.map(r => {
+        const box = gameState.activePingBoxes.find(b => b.runnerId === r.id && !b.isDecoy);
+        return `
+          <div class="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono text-xs">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full ${r.status === 'ACTIVE' ? 'bg-emerald-400' : 'bg-slate-600'}"></span>
+              <span class="font-bold text-white">${r.callsign}</span>
+              <span class="text-[10px] text-slate-400">[Code: ${r.catchCode}]</span>
+            </div>
+            <div class="flex items-center gap-2">
+              ${box ? `<span class="text-[10px] px-2 py-0.5 rounded ${box.reconClaimed ? 'bg-slate-800 text-slate-400' : 'bg-amber-500/20 text-amber-300'}">${box.reconClaimed ? 'Recon Swept ✓' : '+75c Recon Box'}</span>` : ''}
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded ${r.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}">${r.status}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Event Log
+      const logEl = document.getElementById('tacticalEventLog');
+      logEl.innerHTML = gameState.eventLog.map(ev => `
+        <div class="border-b border-slate-800/70 pb-1">
+          <span class="text-slate-500">[${ev.time}]</span> <span>${ev.text}</span>
+        </div>
+      `).join('');
+    }
+
+    function triggerProximityTag(runnerId) {
+      const chaser = getActivePlayer();
+      const runner = gameState.players.find(r => r.id === runnerId);
+      if (runner) executeRunnerCatch(runner, chaser);
+    }
+
+    /*************************************************************
+     * 14. NAVIGATION, LOBBY, HOST CONFIG & DEV SIMULATOR ACTIONS
+     *************************************************************/
+    let currentTab = 'map';
+
+    function switchTab(tabName) {
+      currentTab = tabName;
+      const overlay = document.getElementById('tabContentOverlay');
+      const panels = [
+        'runnerChallengesPanel',
+        'runnerTransportPanel',
+        'runnerShopPanel',
+        'chaserCatchPanel',
+        'chaserShopPanel'
+      ];
+      panels.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+
+      if (tabName === 'map') {
+        overlay.classList.add('hidden');
+        setTimeout(() => {
+          if (map && leafletReady) map.invalidateSize();
+          drawTacticalRadarCanvas();
+        }, 60);
+      } else {
+        overlay.classList.remove('hidden');
+        const panelMap = {
+          runnerChallenges: 'runnerChallengesPanel',
+          runnerTransport: 'runnerTransportPanel',
+          runnerShop: 'runnerShopPanel',
+          chaserCatch: 'chaserCatchPanel',
+          chaserShop: 'chaserShopPanel'
+        };
+        const targetPanel = document.getElementById(panelMap[tabName]);
+        if (targetPanel) {
+          targetPanel.classList.remove('hidden');
+        }
+      }
+
+      // Highlight active button using explicit static Tailwind classes (no dynamic interpolation issues)
+      const activeRunnerStyle = 'flex flex-col items-center justify-center py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono text-[11px] font-bold transition relative';
+      const activeChaserStyle = 'flex flex-col items-center justify-center py-1.5 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/40 font-mono text-[11px] font-bold transition relative';
+      const inactiveStyle = 'flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-mono text-[11px] font-bold transition relative';
+
+      const navButtons = [
+        { id: 'navBtn_runner_map', tab: 'map', activeClass: activeRunnerStyle },
+        { id: 'navBtn_runner_challenges', tab: 'runnerChallenges', activeClass: activeRunnerStyle },
+        { id: 'navBtn_runner_transport', tab: 'runnerTransport', activeClass: activeRunnerStyle },
+        { id: 'navBtn_runner_shop', tab: 'runnerShop', activeClass: activeRunnerStyle },
+        { id: 'navBtn_chaser_map', tab: 'map', activeClass: activeChaserStyle },
+        { id: 'navBtn_chaser_catch', tab: 'chaserCatch', activeClass: activeChaserStyle },
+        { id: 'navBtn_chaser_shop', tab: 'chaserShop', activeClass: activeChaserStyle }
+      ];
+
+      navButtons.forEach(item => {
+        const btn = document.getElementById(item.id);
+        if (!btn) return;
+        btn.className = (item.tab === tabName) ? item.activeClass : inactiveStyle;
+      });
+
+      populateFreezeDropdowns();
+      updateAllHUD();
+    }
+
+    function showGlobalBanner(message, color = 'amber') {
+      const container = document.getElementById('globalAlertContainer');
+      const colorStyles = {
+        emerald: 'bg-emerald-950/95 border-emerald-400 text-emerald-200',
+        rose: 'bg-rose-950/95 border-rose-500 text-rose-100',
+        amber: 'bg-amber-950/95 border-amber-400 text-amber-100',
+        cyan: 'bg-cyan-950/95 border-cyan-400 text-cyan-100'
+      };
+      const div = document.createElement('div');
+      div.className = `border-2 rounded-xl px-3.5 py-2.5 shadow-2xl font-mono text-xs font-bold transition-all duration-300 pointer-events-auto ${colorStyles[color] || colorStyles.amber}`;
+      div.innerHTML = message;
+      container.appendChild(div);
+      setTimeout(() => {
+        div.style.opacity = '0';
+        setTimeout(() => div.remove(), 300);
+      }, 4200);
+    }
+
+    // Dev Simulator Drawer Controls
+    function toggleDevDrawer() {
+      const drawer = document.getElementById('devSimDrawer');
+      drawer.classList.toggle('hidden');
+      renderSimPlayerDropdown();
+      syncMapLayers();
+    }
+
+    document.getElementById('toggleDevDrawerBtn').addEventListener('click', toggleDevDrawer);
+
+    function renderSimPlayerDropdown() {
+      const sel = document.getElementById('simActivePlayerSelect');
+      sel.innerHTML = gameState.players.map(p => `
+        <option value="${p.id}" ${p.id === gameState.activePlayerId ? 'selected' : ''}>
+          [${p.team}] ${p.callsign} (${Math.floor(p.coins)}c) ${p.status === 'CAUGHT' ? '- CAUGHT' : ''}
+        </option>
+      `).join('');
+    }
+
+    function switchActiveSimulatedPlayer(playerId) {
+      gameState.activePlayerId = playerId;
+      switchTab('map');
+      renderSimPlayerDropdown();
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    function quickSwitchTeamRole(targetTeam) {
+      const candidate = gameState.players.find(p => p.team === targetTeam && p.status === 'ACTIVE') ||
+                        gameState.players.find(p => p.team === targetTeam);
+      if (candidate) {
+        switchActiveSimulatedPlayer(candidate.id);
+        showGlobalBanner(`🔄 Perspective switched to ${candidate.callsign} (${candidate.team} HUD)`, candidate.team === 'RUNNER' ? 'emerald' : 'rose');
+      }
+    }
+
+    function simMoveChaserNearRunner(distanceMeters) {
+      const runner = gameState.players.find(p => p.team === 'RUNNER' && p.status === 'ACTIVE') || getActivePlayer();
+      const chaser = gameState.players.find(p => p.team === 'CHASER');
+      if (!runner || !chaser) return;
+
+      const pos = offsetLatLng(runner.lat, runner.lng, distanceMeters * 0.7, distanceMeters * 0.7);
+      movePlayerToCoordinates(chaser, pos.lat, pos.lng);
+      showGlobalBanner(`🛠️ Sim: Moved ${chaser.callsign} to ~${distanceMeters}m from ${runner.callsign}`, 'amber');
+    }
+
+    function simAddCoins(amount) {
+      const p = getActivePlayer();
+      p.coins += amount;
+      playTacticalSound('coin');
+      showGlobalBanner(`🪙 Added +${amount} Coins to ${p.callsign}`, 'amber');
+      updateAllHUD();
+    }
+
+    function simFastForwardStationary(mins) {
+      const p = getActivePlayer();
+      if (p.team !== 'RUNNER') {
+        showGlobalBanner(`Switch to a Runner to test Stationary Camping Multiplier!`, 'amber');
+        return;
+      }
+      p.stationarySeconds += mins * 60;
+      const mult = getCampingMultiplier(p.stationarySeconds);
+      showGlobalBanner(`⛺ Fast-forwarded +${mins}m Stationary Time! Camping Multiplier is now ${mult.toFixed(1)}x!`, 'emerald');
+      updateAllHUD();
+    }
+
+    function simChaserEnterReconBox() {
+      const chaser = gameState.players.find(p => p.team === 'CHASER');
+      const unclaimedBox = gameState.activePingBoxes.find(b => !b.reconClaimed && !b.isDecoy);
+      if (!chaser || !unclaimedBox) {
+        showGlobalBanner(`No unclaimed Ping Boxes left! Trigger a fresh Ping Sweep first.`, 'amber');
+        return;
+      }
+      movePlayerToCoordinates(chaser, unclaimedBox.center.lat, unclaimedBox.center.lng);
+    }
+
+    function simAddChaserPatrol(meters) {
+      const chaser = getActivePlayer().team === 'CHASER' ? getActivePlayer() : gameState.players.find(p => p.team === 'CHASER');
+      if (!chaser) return;
+      const dest = offsetLatLng(chaser.lat, chaser.lng, meters, 0);
+      movePlayerToCoordinates(chaser, dest.lat, dest.lng);
+    }
+
+    function simShrinkZoneStep() {
+      gameState.zone.currentRadiusM = Math.max(gameState.zone.finalRadiusM, gameState.zone.currentRadiusM - 300);
+      triggerGlobalPingSweep(true);
+      showGlobalBanner(`⭕ Safe Zone shrunk to ${Math.round(gameState.zone.currentRadiusM)}m! Ping Box scaled to ${getCurrentScaledPingSize()}m!`, 'cyan');
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    function simTriggerEnemyPowerupAlert() {
+      const myTeam = getActivePlayer().team;
+      handleIncomingOpposingAlert(myTeam === 'RUNNER' ? 'CHASER' : 'RUNNER');
+    }
+
+    function simExecuteCatchTest() {
+      const runner = gameState.players.find(r => r.team === 'RUNNER' && r.status === 'ACTIVE');
+      const chaser = gameState.players.find(c => c.team === 'CHASER');
+      if (!runner) {
+        // Revive all runners so user can keep testing
+        gameState.players.forEach(p => {
+          if (p.id.startsWith('runner')) {
+            p.team = 'RUNNER';
+            p.status = 'ACTIVE';
+          }
+        });
+        triggerGlobalPingSweep(true);
+        showGlobalBanner(`♻️ All Runners revived for another round of testing!`, 'emerald');
+        updateAllHUD();
+        return;
+      }
+      executeRunnerCatch(runner, chaser);
+    }
+
+    // Lobby & Host Settings Modals
+    document.getElementById('openLobbyBtn').addEventListener('click', () => {
+      const p = getActivePlayer();
+      document.getElementById('lobbyCallsignInput').value = p.callsign;
+      document.getElementById('lobbyRoomCodeInput').value = gameState.roomCode;
+      renderLobbyRoster();
+      document.getElementById('lobbyModal').classList.remove('hidden');
+    });
+
+    function closeLobbyModal() {
+      document.getElementById('lobbyModal').classList.add('hidden');
+    }
+
+    function saveLobbyProfile() {
+      const p = getActivePlayer();
+      const val = document.getElementById('lobbyCallsignInput').value.trim().toUpperCase();
+      const rm = document.getElementById('lobbyRoomCodeInput').value.trim().toUpperCase();
+      if (val) p.callsign = val;
+      if (rm) gameState.roomCode = rm;
+      renderLobbyRoster();
+      syncMapLayers();
+      updateAllHUD();
+      showGlobalBanner(`✓ Operative profile updated (${p.callsign} // Room ${gameState.roomCode})`, 'emerald');
+    }
+
+    function renderLobbyRoster() {
+      const list = document.getElementById('lobbyRosterList');
+      list.innerHTML = gameState.players.map(p => {
+        const isMe = p.id === gameState.activePlayerId;
+        return `
+          <div class="flex items-center justify-between bg-slate-950 border ${isMe ? 'border-amber-400' : 'border-slate-800'} rounded-xl px-3 py-2 font-mono text-xs">
+            <div class="flex items-center gap-2">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${p.team === 'RUNNER' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}">${p.team}</span>
+              <span class="font-bold text-white">${p.callsign}</span>
+              <span class="text-[10px] text-amber-300">${Math.floor(p.coins)}c</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button onclick="togglePlayerTeam('${p.id}')" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-slate-300">
+                Swap Team
+              </button>
+              <button onclick="switchActiveSimulatedPlayer('${p.id}'); closeLobbyModal();" class="px-2.5 py-1 rounded ${isMe ? 'bg-amber-400 text-slate-950 font-bold' : 'bg-slate-800 text-white'} text-[10px]">
+                ${isMe ? 'Controlling' : 'Control'}
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function togglePlayerTeam(playerId) {
+      const p = gameState.players.find(x => x.id === playerId);
+      if (!p) return;
+      p.team = p.team === 'RUNNER' ? 'CHASER' : 'RUNNER';
+      p.status = 'ACTIVE';
+      if (p.team === 'RUNNER' && !p.tickets) {
+        p.tickets = { bus: 1, tram: 1, train: 1, bike: 1, ferry: 1 };
+        p.catchCode = String(Math.floor(1000 + Math.random() * 9000));
+        p.anchorLat = p.lat;
+        p.anchorLng = p.lng;
+        p.stationarySeconds = 0;
+      }
+      triggerGlobalPingSweep(true);
+      renderLobbyRoster();
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    function addSimulatedBot() {
+      const idx = gameState.players.length + 1;
+      const isRunner = idx % 2 === 0;
+      const offset = offsetLatLng(gameState.zone.centerLat, gameState.zone.centerLng, (Math.random() - 0.5) * 1200, (Math.random() - 0.5) * 1200);
+      gameState.players.push({
+        id: `bot-${Date.now()}`,
+        callsign: isRunner ? `GHOST-0${idx}` : `REAPER-0${idx}`,
+        team: isRunner ? 'RUNNER' : 'CHASER',
+        status: 'ACTIVE',
+        lat: offset.lat,
+        lng: offset.lng,
+        prevPingCoord: { lat: offset.lat, lng: offset.lng },
+        coins: 300,
+        catchCode: String(Math.floor(1000 + Math.random() * 9000)),
+        anchorLat: offset.lat,
+        anchorLng: offset.lng,
+        stationarySeconds: 0,
+        outOfBoundsGraceSec: 60,
+        exposedUntil: 0,
+        ghostNextPing: false,
+        decoyNextPing: false,
+        frozenUntil: 0,
+        freezeAnchorLat: 0,
+        freezeAnchorLng: 0,
+        freezeBreachUntil: 0,
+        tickets: { bus: 1, tram: 1, train: 1, bike: 1, ferry: 1 },
+        patrolMeters: 0,
+        challengeCooldownSec: 0,
+        activeChallenge: null
+      });
+      triggerGlobalPingSweep(true);
+      renderLobbyRoster();
+      renderSimPlayerDropdown();
+      syncMapLayers();
+    }
+
+    // Host Settings Modal
+    document.getElementById('openSettingsBtn').addEventListener('click', () => {
+      document.getElementById('hostSettingsModal').classList.remove('hidden');
+    });
+
+    function closeHostSettingsModal() {
+      document.getElementById('hostSettingsModal').classList.add('hidden');
+    }
+
+    // Cloud DB / Supabase Setup Modal
+    document.getElementById('openDbModalBtn').addEventListener('click', () => {
+      document.getElementById('dbConfigModal').classList.remove('hidden');
+    });
+
+    function closeDbModal() {
+      document.getElementById('dbConfigModal').classList.add('hidden');
+    }
+
+    function saveSupabaseConfig() {
+      const url = document.getElementById('supabaseUrlInput').value.trim();
+      const key = document.getElementById('supabaseKeyInput').value.trim();
+      if (!url || !key) {
+        showGlobalBanner('ℹ️ Using LocalStorage + BroadcastChannel sync. Paste a Supabase URL & Anon Key when ready for cloud play!', 'amber');
+        closeDbModal();
+        return;
+      }
+      localStorage.setItem('MANHUNT_SUPABASE_CFG', JSON.stringify({ url, key }));
+      document.getElementById('dbCurrentModeLabel').textContent = 'SUPABASE CLOUD REALTIME READY';
+      showGlobalBanner('🔌 Supabase Cloud configuration saved! Ready for multi-device room sync.', 'emerald');
+      closeDbModal();
+    }
+
+    function applyHostConfiguration() {
+      gameState.gameMode = document.getElementById('cfgGameMode').value;
+      const hsMins = Number(document.getElementById('cfgHeadstartMins').value) || 0;
+      gameState.headstartSecondsLeft = hsMins * 60;
+      gameState.pingIntervalSec = Math.max(60, (Number(document.getElementById('cfgPingIntervalMins').value) || 10) * 60);
+      gameState.nextPingInSec = gameState.pingIntervalSec;
+      gameState.initialPingSizeM = Number(document.getElementById('cfgInitialPingSize').value) || 500;
+      gameState.economy.cardCooldownMins = Number(document.getElementById('cfgCardCooldownMins').value) || 60;
+
+      const startRad = Number(document.getElementById('cfgStartZoneRadius').value) || 2500;
+      gameState.zone.initialRadiusM = startRad;
+      gameState.zone.currentRadiusM = startRad;
+      gameState.zone.finalRadiusM = Number(document.getElementById('cfgFinalZoneRadius').value) || 250;
+      gameState.zone.shrinkRateMPerMin = Number(document.getElementById('cfgShrinkRate').value) || 15;
+
+      gameState.economy.baseCatchBounty = Number(document.getElementById('cfgBaseBounty').value) || 500;
+      gameState.economy.baseSurvivalPerMin = Number(document.getElementById('cfgSurvivalRate').value) || 10;
+      gameState.radar.cautionM = Number(document.getElementById('cfgCautionRadius').value) || 250;
+      gameState.radar.dangerM = Number(document.getElementById('cfgDangerRadius').value) || 100;
+
+      triggerGlobalPingSweep(true);
+      closeHostSettingsModal();
+      showGlobalBanner(`⚙️ Host Parameters Applied! Mode: ${gameState.gameMode}, Zone: ${startRad}m, Ping Box: ${gameState.initialPingSizeM}m`, 'emerald');
+      syncMapLayers();
+      updateAllHUD();
+    }
+
+    function skipHeadstartNow() {
+      gameState.headstartSecondsLeft = 0;
+      document.getElementById('cfgHeadstartMins').value = 0;
+      triggerGlobalPingSweep(true);
+      showGlobalBanner(`⚡ Headstart Timer skipped! Chaser Pings active.`, 'amber');
+      updateAllHUD();
+    }
+
+    function centerZoneOnActivePlayer() {
+      const p = getActivePlayer();
+      gameState.zone.centerLat = p.lat;
+      gameState.zone.centerLng = p.lng;
+      syncMapLayers();
+      showGlobalBanner(`📍 Safe Zone centered on ${p.callsign}'s coordinates!`, 'cyan');
+    }
+
+    // Hardware GPS & Screen Wake Lock
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          await navigator.wakeLock.request('screen');
+          document.getElementById('wakeLockBadge').textContent = '🔒 WAKE-LOCK ACTIVE';
+        } catch (e) {}
+      }
+    }
+
+    function toggleHardwareGps() {
+      const btn = document.getElementById('enableHardwareGpsBtn');
+      if (gameState.hardwareGpsEnabled) {
+        if (gameState.hardwareWatchId !== null) {
+          navigator.geolocation.clearWatch(gameState.hardwareWatchId);
+        }
+        gameState.hardwareGpsEnabled = false;
+        btn.textContent = '📡 Enable Live GPS';
+        showGlobalBanner(`🛠️ Switched back to Simulated GPS mode.`, 'amber');
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        showGlobalBanner(`❌ Geolocation API not supported in this browser.`, 'rose');
+        return;
+      }
+
+      gameState.hardwareGpsEnabled = true;
+      btn.textContent = '🟢 Live GPS Tracking ON';
+      requestWakeLock();
+
+      gameState.hardwareWatchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const p = getActivePlayer();
+          movePlayerToCoordinates(p, pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => {
+          showGlobalBanner(`⚠️ Hardware GPS fallback: using simulation coordinates (${err.message}).`, 'amber');
+        },
+        { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+      );
+      showGlobalBanner(`📡 Live Hardware GPS watchPosition enabled!`, 'emerald');
+    }
+
+    // Map Floating Controls
+    document.getElementById('toggleClickTeleportBtn').addEventListener('click', () => {
+      gameState.clickMapToTeleport = !gameState.clickMapToTeleport;
+      document.getElementById('clickTeleportLabel').textContent = `TAP MAP TO MOVE: ${gameState.clickMapToTeleport ? 'ON' : 'OFF'}`;
+    });
+
+    document.getElementById('centerActivePlayerBtn').addEventListener('click', () => {
+      const p = getActivePlayer();
+      if (map) map.setView([p.lat, p.lng], 16, { animate: true });
+    });
+
+    document.getElementById('fitZoneBtn').addEventListener('click', () => {
+      if (map && safeZoneCircle) map.fitBounds(safeZoneCircle.getBounds(), { padding: [20, 20] });
+    });
+
+    document.getElementById('audioToggleBtn').addEventListener('click', (e) => {
+      audioEnabled = !audioEnabled;
+      e.currentTarget.textContent = audioEnabled ? '🔊' : '🔇';
+    });
+
+    document.getElementById('copyRoomBtn').addEventListener('click', () => {
+      const temp = document.createElement('textarea');
+      temp.value = gameState.roomCode;
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      temp.remove();
+      showGlobalBanner(`📋 Room Code ${gameState.roomCode} copied to clipboard!`, 'emerald');
+    });
+
+    function initContractPoolPreview() {
+      const container = document.getElementById('contractPoolPreviewList');
+      container.innerHTML = CHALLENGE_DECK.map(c => `
+        <div class="bg-slate-950/90 border border-slate-800/80 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
+          <span class="truncate text-slate-300 font-bold">${c.title}</span>
+          <span class="text-amber-300 font-extrabold shrink-0 ml-2">+${c.reward}c</span>
+        </div>
+      `).join('');
+    }
+
+    // Expose all onclick handlers explicitly on window so inline HTML attributes always resolve
+    Object.assign(window, {
+      switchTab,
+      useTransportTicket,
+      buyRunnerPowerup,
+      buyChaserPowerup,
+      triggerProximityTag,
+      toggleDevDrawer,
+      switchActiveSimulatedPlayer,
+      quickSwitchTeamRole,
+      simMoveChaserNearRunner,
+      simAddCoins,
+       triggerGlobalPingSweep,
+      simFastForwardStationary,
+      simChaserEnterReconBox,
+      simAddChaserPatrol,
+      simShrinkZoneStep,
+      resetChallengeCooldownDev,
+      simTriggerEnemyPowerupAlert,
+      simExecuteCatchTest,
+      closeLobbyModal,
+      saveLobbyProfile,
+      togglePlayerTeam,
+      addSimulatedBot,
+      closeHostSettingsModal,
+      applyHostConfiguration,
+      skipHeadstartNow,
+      centerZoneOnActivePlayer,
+      toggleHardwareGps,
+      closeDbModal,
+      saveSupabaseConfig,
+      resetFullGameState
+    });
+
+    // Initialize Application on Load (with readyState check so it never misses DOMContentLoaded)
+    function bootstrapApp() {
+      loadStateFromStorage();
+      initContractPoolPreview();
+      populateFreezeDropdowns();
+      renderSimPlayerDropdown();
+      initMap();
+      switchTab('map');
+      updateAllHUD();
+      requestWakeLock();
+
+      // Start 1-second real-time tactical loop
+      setInterval(runGameTick, 1000);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrapApp);
+    } else {
+      bootstrapApp();
+    }
+  </script>
+</body>
+</html>
