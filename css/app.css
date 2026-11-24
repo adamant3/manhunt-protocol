@@ -391,3 +391,8 @@ button, input, select { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- install button + steps */
+.btn-install { border-style: dashed; border-width: 2px; font-size: 1rem; min-height: 46px; color: var(--ink-2); }
+.btn-install[hidden] { display: none; }
+.steps { margin: .25rem 0 1rem; padding-left: 1.25rem; display: grid; gap: .6rem; text-align: left; }

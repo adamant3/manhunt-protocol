@@ -4,6 +4,8 @@ import * as net from './net.js';
 import * as E from './engine.js';
 import * as UI from './ui.js';
 import { DEFAULT_SETTINGS, COUNTDOWN_SEC } from './config.js';
+import * as KA from './keepalive.js';
+import * as PWA from './pwa.js';
 
 /* ------------------------------------------------------------- feedback */
 let audio = null;
@@ -27,14 +29,16 @@ function notify(text, tone = 'info', opts = {}) {
   if (opts.sound) beep(opts.sound);
 }
 
-let wakeLock = null;
-async function keepAwake() {
-  if (!('wakeLock' in navigator) || document.visibilityState !== 'visible' || wakeLock) return;
-  try { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } catch (e) {}
-}
+const keepAwake = () => { KA.holdScreen(); if (S.bg) KA.startBackground(); };
 
 /* ------------------------------------------------------------------ GPS */
 let watchId = null;
+// Phones can silently kill the location watch while the page is hidden, so restart it on return.
+function restartGps() {
+  if (SIM || !S.room) return;
+  if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  startGps();
+}
 function startGps() {
   if (SIM) {
     if (!S.pos) {
@@ -163,6 +167,7 @@ function leaveLocal(msg) {
   net.unsubscribe();
   S.room = null; S.players = new Map(); S.events = []; S.my = null;
   S.session = null; save('session', null);
+  KA.releaseScreen(); KA.stopBackground();
   UI.show('landing');
   if (msg) notify(msg, 'info');
 }
@@ -285,11 +290,17 @@ const actions = {
     const host = E.isHost();
     const choice = await UI.modal({ title: 'Menu', actions: [
       { label: S.sound ? 'Turn sound off' : 'Turn sound on', value: 'sound' },
+      { label: S.bg ? 'Background mode: on' : 'Background mode: off', value: 'bg' },
       ...(host ? [{ label: 'End the game for everyone', value: 'end', danger: true }] : []),
       { label: host ? 'Close the room' : 'Leave the game', value: 'leave', danger: !host },
       { label: 'Back to the game', value: null, primary: true }
     ] });
     if (choice === 'sound') { S.sound = !S.sound; save('sound', S.sound); notify(S.sound ? 'Sound on.' : 'Sound off.', 'info'); }
+    if (choice === 'bg') {
+      S.bg = !S.bg; save('bg', S.bg);
+      if (S.bg) { KA.startBackground(); notify('Background mode on. Your phone may show a media player while the game runs.', 'info'); }
+      else { KA.stopBackground(); notify('Background mode off.', 'info'); }
+    }
     if (choice === 'end' && await confirmBox('End the game now?', 'Everyone goes to the results.', 'End game', true)) net.updateRoom(S.room.code, { phase: 'ENDED' });
     if (choice === 'leave') actions.leave();
   },
@@ -308,6 +319,11 @@ const actions = {
     if (await E.catchByCode(code)) input.value = '';
   },
   toggleCode() { S.ui.revealCode = !S.ui.revealCode; render(); },
+  async install() {
+    if (PWA.canPrompt()) { const r = await PWA.promptInstall(); if (r === 'accepted') notify('Installing. Look for Manhunt on your home screen.', 'info'); return; }
+    const g = PWA.steps();
+    await UI.modal({ title: g.title, html: `<ol class="steps">${g.items.map(i => `<li>${i}</li>`).join('')}</ol>`, actions: [{ label: 'Got it', value: null, primary: true }] });
+  },
   recenter() { UI.recenter(); },
   fitZone() { UI.fitZone(); },
   simMove(p) { E.onPosition({ ...p, acc: 5 }); }
@@ -317,6 +333,7 @@ const actions = {
 async function boot() {
   UI.init();
   UI.setActions(actions);
+  PWA.onChange(() => UI.update());
   E.setNotifier(notify);
   onRender(() => { if (S.room) route(); else UI.update(); });
   UI.show('loading');
@@ -332,7 +349,7 @@ async function boot() {
   setInterval(() => { if (UI.currentScreen() === 'countdown') render(); }, 200);
   setInterval(resync, 15000);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { keepAwake(); resync(); }
+    if (document.visibilityState === 'visible') { if (S.room) { keepAwake(); restartGps(); } resync(); }
   });
   window.addEventListener('online', resync);
 }

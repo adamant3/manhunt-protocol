@@ -4,6 +4,7 @@ import * as net from './net.js';
 import * as E from './engine.js';
 import { createMap, draw } from './map.js';
 import { dist, fmtDist, fmtClock } from './geo.js';
+import * as PWA from './pwa.js';
 import { SETTING_META, DECK, SHOP, TRANSPORT, RADAR, COUNTDOWN_SEC } from './config.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -99,6 +100,7 @@ const SCREENS = {
           <button type="button" class="btn btn-primary" data-act="host">Host a game</button>
           <button type="button" class="btn" data-act="goJoin">Join a game</button>
         </div>
+        <button type="button" class="btn btn-install" id="installBtn" data-act="install" hidden>Add to home screen</button>
         <p class="error" id="err" role="alert"></p>
       </form>
       <details class="how">
@@ -217,7 +219,13 @@ const AFTER = {
 export const setError = msg => txt($('#err'), msg || '');
 
 /* --------------------------------------------------------------- updates */
+function updateLanding() {
+  const b = $('#installBtn');
+  if (b) b.hidden = PWA.isStandalone();
+}
+
 const UPDATE = {
+  landing: updateLanding,
   lobby: updateLobby,
   countdown: updateCountdown,
   game: updateGame,
@@ -609,12 +617,12 @@ function renderToasts() {
 }
 
 /* ---------------------------------------------------------------- modals */
-export function modal({ title, body = '', actions }) {
+export function modal({ title, body = '', html = '', actions }) {
   return new Promise(resolve => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
     wrap.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
-      <h2>${esc(title)}</h2>${body ? `<p>${esc(body)}</p>` : ''}
+      <h2>${esc(title)}</h2>${body ? `<p>${esc(body)}</p>` : ''}${html}
       <div class="stack">${actions.map((a, i) => `<button class="btn ${a.primary ? 'btn-primary' : ''} ${a.danger ? 'btn-danger' : ''}" data-i="${i}">${esc(a.label)}</button>`).join('')}</div></div>`;
     wrap.addEventListener('click', e => {
       const b = e.target.closest('[data-i]');

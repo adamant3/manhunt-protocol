@@ -30,6 +30,7 @@ export const S = {
   gpsError: null,
   online: true,
   sound: load('sound', true),
+  bg: load('bg', true),             // best-effort background mode (silent audio keep-alive)
   ui: { tab: 'map', hound: null, toasts: [], revealCode: false, follow: true }
 };
 
