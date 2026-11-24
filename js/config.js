@@ -32,18 +32,18 @@ export const DEFAULT_SETTINGS = {
   cardCooldownMin: 60
 };
 
-// Choices offered in the lobby (keeps inputs thumb-friendly)
-export const SETTING_OPTIONS = {
-  durationMin: [30, 45, 60, 90, 120, 180, 240],
-  headstartMin: [0, 2, 5, 10, 15, 20],
-  pingMin: [3, 5, 8, 10, 15, 20],
-  pingSizeM: [200, 300, 400, 500, 750, 1000],
-  zoneStartM: [500, 1000, 1500, 2000, 2500, 3500, 5000],
-  zoneEndM: [100, 200, 300, 500, 750, 1000],
-  startCoins: [0, 100, 150, 300, 500],
-  bounty: [250, 500, 750, 1000],
-  dripPerMin: [5, 10, 15, 20],
-  cardCooldownMin: [15, 30, 45, 60, 90]
+// Lobby choices: presets for quick picks, plus a custom value within [min, max]
+export const SETTING_META = {
+  durationMin: { options: [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480, 720], min: 5, max: 720, unit: 'minutes' },
+  headstartMin: { options: [0, 1, 2, 3, 5, 10, 15, 20, 30, 45, 60], min: 0, max: 180, unit: 'minutes' },
+  pingMin: { options: [1, 2, 3, 5, 8, 10, 15, 20, 30, 45, 60], min: 1, max: 180, unit: 'minutes' },
+  pingSizeM: { options: [100, 200, 300, 400, 500, 750, 1000, 1500, 2000], min: 50, max: 10000, unit: 'metres' },
+  zoneStartM: { options: [300, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000], min: 100, max: 50000, unit: 'metres' },
+  zoneEndM: { options: [50, 100, 200, 300, 500, 750, 1000, 1500, 2000], min: 25, max: 50000, unit: 'metres' },
+  startCoins: { options: [0, 100, 150, 250, 300, 500, 1000], min: 0, max: 100000, unit: 'coins' },
+  bounty: { options: [100, 250, 500, 750, 1000, 1500, 2000], min: 0, max: 100000, unit: 'coins' },
+  dripPerMin: { options: [0, 5, 10, 15, 20, 30, 50], min: 0, max: 1000, unit: 'coins a minute' },
+  cardCooldownMin: { options: [0, 5, 10, 15, 20, 30, 45, 60, 90, 120], min: 0, max: 600, unit: 'minutes' }
 };
 
 export const TRANSPORT = [
