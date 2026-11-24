@@ -4,7 +4,7 @@ import * as net from './net.js';
 import * as E from './engine.js';
 import { createMap, draw } from './map.js';
 import { dist, fmtDist, fmtClock } from './geo.js';
-import { SETTING_OPTIONS, DECK, SHOP, TRANSPORT, RADAR, COUNTDOWN_SEC } from './config.js';
+import { SETTING_META, DECK, SHOP, TRANSPORT, RADAR, COUNTDOWN_SEC } from './config.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,9 +35,29 @@ function onClick(e) {
   if (A[act]) { e.preventDefault(); A[act](b.dataset, b); }
 }
 
+// Settings the host switched to "Custom…" but has not typed a value for yet
+const customOpen = new Set();
+
 function onChange(e) {
-  const el = e.target;
-  if (el.dataset.setting) A.setSetting(el.dataset.setting, el.value);
+  const el = e.target, k = el.dataset.setting || el.dataset.custom;
+  if (!k) return;
+  if (el.dataset.custom) {
+    const meta = SETTING_META[k], v = Number(String(el.value).replace(',', '.'));
+    if (!isFinite(v) || el.value === '') { el.value = E.settings()[k]; return; }
+    const clamped = Math.round(Math.min(meta.max, Math.max(meta.min, v)));
+    if (clamped !== v) A.toast && A.toast(`${LABELS[k][0]} must be between ${meta.min} and ${meta.max} ${meta.unit}.`);
+    customOpen.delete(k);
+    A.setSetting(k, clamped);
+    return;
+  }
+  if (el.value === 'custom') {
+    customOpen.add(k); update();
+    const inp = document.querySelector(`[data-custom="${k}"]`);
+    if (inp) { inp.focus(); inp.select(); }
+    return;
+  }
+  customOpen.delete(k);
+  A.setSetting(k, el.value);
 }
 
 /* ------------------------------------------------------------- mounting */
@@ -190,7 +210,7 @@ const AFTER = {
   game: () => {
     const c = S.pos || E.settings().center;
     gameMap = createMap($('#gameMap'), { center: c, zoom: 16, onTap: SIM ? p => A.simMove(p) : null });
-    gameMap.map.on('dragstart', () => { S.ui.follow = false; });
+    gameMap.onUserMove(() => { S.ui.follow = false; });
   }
 };
 
@@ -244,7 +264,9 @@ function updateLobby() {
     if (c && st.zoneEndM) items.push({ key: 'zoneEnd', type: 'ring', cls: 'ring-end', lat: c.lat, lng: c.lng, r: st.zoneEndM });
     all.forEach(p => { const pp = E.posOf(p); if (pp) items.push({ key: 'p' + p.id, type: 'player', lat: pp.lat, lng: pp.lng, cls: (p.team === 'RUNNER' ? 'is-runner' : 'is-chaser') + (p.id === S.me.id ? ' is-me' : '') }); });
     draw(lobbyMap, items);
-    if (c && !lobbyMap._fitted) { lobbyMap.map.fitBounds(lobbyMap.layers.get('zone').getBounds(), { padding: [12, 12] }); lobbyMap._fitted = true; }
+    // Refit when the zone is first known, resized or moved on purpose (not on every GPS update)
+    const fitKey = `${st.zoneStartM}|${st.center ? st.center.lat + ',' + st.center.lng : 'host'}`;
+    if (c && lobbyMap._fitKey !== fitKey) { lobbyMap.fitCircle(c, st.zoneStartM, 12); lobbyMap._fitKey = fitKey; }
   }
   txt($('#zoneNote'), !c ? (host ? 'Waiting for your location. You can also tap the map to place the zone.' : 'The host has not placed the zone yet.')
     : host ? (st.center ? 'Tap the map to move the zone.' : 'The zone is centred on you. Tap the map to move it.')
@@ -282,8 +304,15 @@ const MORE_KEYS = ['startCoins', 'bounty', 'dripPerMin', 'cardCooldownMin'];
 function fmtMin(v) { return v >= 60 && v % 60 === 0 ? `${v / 60} h` : v >= 60 ? `${Math.floor(v / 60)} h ${v % 60} min` : `${v} min`; }
 
 function settingsForm(st) {
-  const sel = k => `<label class="field field-row"><span>${LABELS[k][0]}</span>
-    <select data-setting="${k}">${SETTING_OPTIONS[k].map(v => `<option value="${v}" ${+st[k] === v ? 'selected' : ''}>${LABELS[k][1](v)}</option>`).join('')}</select></label>`;
+  const sel = k => {
+    const meta = SETTING_META[k], v = +st[k];
+    const custom = customOpen.has(k) || !meta.options.includes(v);
+    const opts = meta.options.map(o => `<option value="${o}" ${!custom && v === o ? 'selected' : ''}>${LABELS[k][1](o)}</option>`).join('')
+      + `<option value="custom" ${custom ? 'selected' : ''}>${custom && !customOpen.has(k) ? `Custom: ${LABELS[k][1](v)}` : 'Custom…'}</option>`;
+    return `<div class="field-row-wrap"><label class="field field-row"><span>${LABELS[k][0]}</span>
+      <select data-setting="${k}">${opts}</select></label>
+      ${custom ? `<label class="custom-input"><input type="number" inputmode="numeric" min="${meta.min}" max="${meta.max}" step="1" data-custom="${k}" value="${v}" aria-label="${LABELS[k][0]} in ${meta.unit}"><span>${meta.unit}</span></label>` : ''}</div>`;
+  };
   return `
     <div class="segmented" role="radiogroup" aria-label="Game mode">
       <button class="${st.mode === 'ELIMINATION' ? 'on' : ''}" data-act="setMode" data-mode="ELIMINATION" role="radio" aria-checked="${st.mode === 'ELIMINATION'}">Elimination<small>Caught runners are out</small></button>
@@ -436,20 +465,17 @@ function drawGameMap(t) {
   }
   draw(gameMap, items);
 
-  if (S.pos && S.ui.follow) {
-    const ll = gameMap.map.getCenter();
-    if (dist({ lat: ll.lat, lng: ll.lng }, S.pos) > 30) gameMap.map.panTo([S.pos.lat, S.pos.lng], { animate: true });
-  }
+  if (S.pos && S.ui.follow && !gameMap.map.isMoving() && dist(gameMap.center(), S.pos) > 30) gameMap.panTo(S.pos);
 }
 
 export function recenter() {
   S.ui.follow = true;
-  if (gameMap && S.pos) gameMap.map.setView([S.pos.lat, S.pos.lng], Math.max(gameMap.map.getZoom(), 16));
+  if (gameMap && S.pos) gameMap.setView(S.pos, Math.max(gameMap.zoom(), 16));
 }
 export function fitZone() {
   S.ui.follow = false;
-  const z = gameMap && gameMap.layers.get('zone');
-  if (z) gameMap.map.fitBounds(z.getBounds(), { padding: [16, 16] });
+  const c = E.settings().center;
+  if (gameMap && c) gameMap.fitCircle(c, E.zoneRadius(net.now()), 24);
 }
 
 /* ----------------------------------------------------------------- sheets */
