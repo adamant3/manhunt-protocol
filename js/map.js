@@ -47,6 +47,9 @@ export function createMap(el, { center, zoom = 15, interactive = true, onTap } =
       layout: { 'line-cap': 'round' },
       paint: { 'line-color': col.over, 'line-width': 5, 'line-dasharray': [0.2, 2] } });
     m.ready = true;
+    // Start with the attribution collapsed to its (i) button so it does not cover small maps
+    const attrib = el.querySelector('.maplibregl-ctrl-attrib');
+    if (attrib) attrib.classList.remove('maplibregl-compact-show');
     if (m.pending) { draw(m, m.pending); m.pending = null; }
   });
   if (onTap) map.on('click', e => onTap({ lat: e.lngLat.lat, lng: e.lngLat.lng }));
@@ -58,9 +61,9 @@ export function createMap(el, { center, zoom = 15, interactive = true, onTap } =
   m.zoom = () => map.getZoom();
   m.panTo = p => map.easeTo({ center: [p.lng, p.lat], duration: 600 });
   m.setView = (p, z) => map.easeTo({ center: [p.lng, p.lat], zoom: z, duration: 500 });
-  m.fitCircle = (p, r, pad = 16) => {
+  m.fitCircle = (p, r, pad = 16, animate = true) => {
     const ring = circle(p, r, 16), lngs = ring.map(x => x[0]), lats = ring.map(x => x[1]);
-    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: pad, duration: 500 });
+    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: pad, duration: animate && m.ready ? 500 : 0 });
   };
   m.onUserMove = fn => map.on('dragstart', fn);
   m.destroy = () => { ro.disconnect(); map.remove(); };
