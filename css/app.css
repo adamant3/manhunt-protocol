@@ -17,7 +17,6 @@
   --warn: #9a5c00;
   --team: var(--ink);
   --team-ink: var(--paper);
-  --tiles: saturate(.35) contrast(1.04) brightness(1.02);
   --shadow: 0 1px 2px rgba(26, 30, 26, .08), 0 8px 24px rgba(26, 30, 26, .10);
   --display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --body: 'Barlow', system-ui, sans-serif;
@@ -42,7 +41,6 @@
     --good: #5fbf6c;
     --bad: #ff6b6b;
     --warn: #e0a040;
-    --tiles: invert(1) hue-rotate(180deg) saturate(.25) brightness(.92) contrast(.95);
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
   }
 }
@@ -182,7 +180,10 @@ button, input, select { font: inherit; color: inherit; }
 .segmented button.on { background: var(--ink); color: var(--paper); }
 .segmented button.on small { color: inherit; opacity: .75; }
 .fields { display: grid; border-top: 1px solid var(--line); }
-.fields .field-row { border-bottom: 1px solid var(--line); }
+.fields .field-row-wrap { border-bottom: 1px solid var(--line); }
+.custom-input { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; padding: 0 0 .5rem; }
+.custom-input input { width: 8.5rem; min-height: 44px; padding: 0 .75rem; border-radius: 10px; border: 1.5px solid var(--ink); background: var(--surface); font-size: 1.0625rem; text-align: right; }
+.custom-input span { color: var(--ink-2); font-size: .875rem; min-width: 4.5rem; }
 .more summary { cursor: pointer; font-weight: 600; padding: .5rem 0; }
 .summary { margin: 0; display: grid; gap: 0 1.25rem; }
 @media (min-width: 520px) { .summary { grid-template-columns: 1fr 1fr; } }
@@ -351,25 +352,17 @@ button, input, select { font: inherit; color: inherit; }
 .board small { font-weight: 400; color: var(--ink-2); font-size: .8125rem; }
 .board strong { font-family: var(--display); font-size: 1.5rem; font-variant-numeric: tabular-nums; }
 
-/* ---------- map layers */
-.tiles { filter: var(--tiles); }
-.leaflet-container { background: var(--sunk); font-family: var(--body); }
-.leaflet-control-attribution { font-size: 10px; background: color-mix(in srgb, var(--paper) 80%, transparent) !important; color: var(--ink-2); }
-.leaflet-control-attribution a { color: var(--ink-2); }
-.game .leaflet-bottom { bottom: calc(3.75rem + var(--safe-b)); }
-.zone { stroke: var(--overprint); stroke-width: 3; fill: var(--overprint); fill-opacity: .04; }
-.ring { stroke: var(--overprint); stroke-width: 2; fill: none; stroke-dasharray: 6 6; }
-.ring-task { stroke: var(--runner); stroke-dasharray: none; fill: var(--runner); fill-opacity: .08; }
-.ring-freeze { stroke: var(--chaser); stroke-width: 3; fill: var(--chaser); fill-opacity: .1; stroke-dasharray: none; }
-.area { stroke: var(--overprint); stroke-width: 2.5; stroke-dasharray: 8 5; fill: var(--overprint); fill-opacity: .12; }
-.area-own { stroke-opacity: .7; fill-opacity: .06; }
-.trail { stroke: var(--overprint); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 2 10; fill: none; }
+/* ---------- map */
+.maplibregl-map { font-family: var(--body); }
+.maplibregl-ctrl-attrib { font-size: 10px; }
+.game .maplibregl-ctrl-bottom-right, .game .maplibregl-ctrl-bottom-left { bottom: calc(3.75rem + var(--safe-b)); }
+.game .maplibregl-ctrl-bottom-right { right: 3.75rem; }
 .area-label {
   background: var(--paper); color: var(--overprint); border: 1.5px solid var(--overprint); border-radius: 6px;
-  font-weight: 700; font-size: .8125rem; padding: 2px 6px; box-shadow: none;
+  font-weight: 700; font-size: .8125rem; padding: 2px 6px; margin-top: 6px; white-space: nowrap; pointer-events: none;
 }
-.area-label::before { display: none; }
-.pin { position: relative; }
+.pin { width: 18px; height: 18px; pointer-events: none; }
+.flag { width: 26px; height: 26px; pointer-events: none; }
 .pin-dot {
   position: absolute; inset: 1px; border-radius: 50%; border: 2.5px solid var(--surface);
   background: var(--ink-2); box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
