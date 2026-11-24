@@ -205,6 +205,7 @@ async function confirmBox(title, body, yes, danger) {
 let settingsTimer = null;
 const actions = {
   beep,
+  toast(text) { notify(text, 'info'); },
   async host() {
     if (!readName()) return;
     UI.show('loading');
@@ -243,7 +244,11 @@ const actions = {
     if (!E.isHost() || S.room.phase !== 'LOBBY') return;
     const st = { ...E.settings() };
     st[k] = (k === 'center' || k === 'mode') ? v : Number(v);
-    if (st.zoneEndM >= st.zoneStartM) st.zoneEndM = Math.min(...[100, 200, 300, 500, 750, 1000].filter(x => x < st.zoneStartM));
+    // The zone can stay the same size, but never grow
+    if (st.zoneEndM > st.zoneStartM) {
+      if (k === 'zoneEndM') { st.zoneEndM = st.zoneStartM; notify('The final zone can not be bigger than the starting zone.', 'info'); }
+      else st.zoneEndM = st.zoneStartM;
+    }
     S.room = { ...S.room, settings: st };
     render();
     clearTimeout(settingsTimer);
