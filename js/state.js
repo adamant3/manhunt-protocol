@@ -39,5 +39,7 @@ export function onRender(fn) { subs.add(fn); }
 export function render() {
   if (queued) return;
   queued = true;
-  requestAnimationFrame(() => { queued = false; subs.forEach(fn => { try { fn(); } catch (e) { console.error(e); } }); });
+  const run = () => { queued = false; subs.forEach(fn => { try { fn(); } catch (e) { console.error(e); } }); };
+  // Hidden tabs get no animation frames, so fall back to a timer there
+  document.hidden ? setTimeout(run, 0) : requestAnimationFrame(run);
 }
